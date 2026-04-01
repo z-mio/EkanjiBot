@@ -1,4 +1,8 @@
-"""Start command handler."""
+"""Start command handler.
+
+This module handles the /start and /lang commands for user onboarding
+and language preference settings.
+"""
 
 from aiogram import Router
 from aiogram.filters import Command
@@ -11,8 +15,16 @@ router = Router()
 
 
 @router.message(Command("start"))
-async def cmd_start(message: Message, session: AsyncSession, db_user: User):
-    """Handle /start command."""
+async def cmd_start(message: Message, session: AsyncSession, db_user: User) -> None:
+    """Handle /start command.
+
+    Sends welcome message with usage instructions.
+
+    Args:
+        message: Incoming Telegram message.
+        session: Database session (unused, injected by middleware).
+        db_user: User model from middleware context.
+    """
     welcome_text = (
         f"你好，{db_user.full_name}！\n\n"
         "欢迎使用文字转表情 Bot！\n\n"
@@ -24,7 +36,12 @@ async def cmd_start(message: Message, session: AsyncSession, db_user: User):
 
 
 @router.message(Command("lang"))
-async def cmd_set_language(message: Message, session: AsyncSession):
-    """Handle /lang command for language settings."""
+async def cmd_set_language(message: Message, session: AsyncSession) -> None:
+    """Handle /lang command for language settings.
+
+    Args:
+        message: Incoming Telegram message.
+        session: Database session (unused, injected by middleware).
+    """
     # TODO: Implement language selection keyboard
     await message.answer("语言设置功能即将上线\n当前仅支持中文(zh)")

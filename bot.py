@@ -128,9 +128,7 @@ def main() -> None:
     async def _run() -> None:
         session = AiohttpSession(proxy=bs.bot_proxy)
         bot = Bot(token=bs.bot_token, session=session, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-        # 先删除 webhook 并丢弃所有待处理的更新
         await bot.delete_webhook(drop_pending_updates=True)
-        # skip_updates=True 再次确保跳过积压消息
         await dp.start_polling(bot, skip_updates=True)
 
     asyncio.run(_run())

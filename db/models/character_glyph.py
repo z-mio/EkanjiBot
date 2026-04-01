@@ -12,16 +12,26 @@ if TYPE_CHECKING:
 
 
 class CharacterGlyph(SQLModel, table=True):
-    """Character glyph table - stores character to custom emoji mappings.
+    """Character glyph table storing character to custom emoji mappings.
 
-    This is permanent storage (not a cache), as each character only needs to be
-    rendered once per font and then reused via the custom emoji ID.
+    This is permanent storage (not cache) - each character is rendered once
+    per font and reused via the custom emoji ID. Characters are uniquely
+    identified by the combination of character + font.
+
+    Attributes:
+        id: Database primary key.
+        character: Single Unicode character.
+        custom_emoji_id: Telegram custom emoji ID for this character.
+        file_id: Telegram file ID for the sticker.
+        emoji_list: Associated emoji list (default "✏️").
+        font_id: Foreign key to fonts table.
+        created_at: Timestamp when record was created.
     """
 
     __tablename__ = "character_glyphs"
 
     id: int | None = Field(default=None, primary_key=True)
-    character: str = Field(max_length=1, description="Single character")
+    character: str = Field(max_length=1, description="Single Unicode character")
     custom_emoji_id: str = Field(max_length=64, description="Telegram custom emoji ID")
     file_id: str = Field(max_length=255, description="Telegram file ID")
     emoji_list: str = Field(default="✏️", max_length=20, description="Associated emoji list")

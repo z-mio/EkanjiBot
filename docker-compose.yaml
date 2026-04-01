@@ -2,8 +2,11 @@ version: '3'
 services:
   bot:
     build: .
-    container_name: tg-bot-template
+    image: ekanjibot
+    container_name: ekanjibot
+    env_file: .env
     volumes:
+      - ./data:/app/data
       - ./logs:/app/logs
-      - ./sessions:/app/sessions
+      - ./assets:/app/assets
     restart: on-failure:2

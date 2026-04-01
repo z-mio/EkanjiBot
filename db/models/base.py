@@ -1,17 +1,20 @@
 """Base model utilities."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import func
 from sqlmodel import Field
 
 
-# Use Field directly instead of Annotated types
 def CreatedAtField():
-    """Factory for created_at field."""
-    return Field(default_factory=datetime.utcnow, nullable=False)
+    """Factory for created_at field with UTC timezone."""
+    return Field(default_factory=lambda: datetime.now(UTC), nullable=False)
 
 
 def UpdatedAtField():
-    """Factory for updated_at field."""
-    return Field(default_factory=datetime.utcnow, nullable=False, sa_column_kwargs={"onupdate": func.now()})
+    """Factory for updated_at field with UTC timezone."""
+    return Field(
+        default_factory=lambda: datetime.now(UTC),
+        nullable=False,
+        sa_column_kwargs={"onupdate": func.now()},
+    )
