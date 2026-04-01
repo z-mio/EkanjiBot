@@ -1,263 +1,113 @@
-# EkanjiBot
+# EkanjiBot - 文字转表情机器人
 
-Convert any text into custom emoji stickers on Telegram. Supports all languages including Chinese, Japanese, Korean (CJK), Arabic, Cyrillic, Latin, and more - limited only by your fonts!
+把任何文字转换成 Telegram 自定义表情贴纸！支持中文、日文、韩文、阿拉伯文、俄文、英文等任何语言 - 只要你的字体支持。
 
-[![Python](https://img.shields.io/badge/Python-3.12%2B-blue)](https://www.python.org/)
-[![aiogram](https://img.shields.io/badge/aiogram-3.26%2B-green)](https://docs.aiogram.dev/)
-[![License](https://img.shields.io/badge/license-MIT-yellow)](LICENSE)
+## 功能
 
-## Features
+- 🎨 **文字转表情** - 把任意文字变成精美的表情贴纸
+- 🔤 **多字体支持** - 自动识别 `assets/fonts/` 目录下的所有字体
+- 💾 **智能缓存** - 每个字符只需渲染一次，永久复用
+- 📦 **自动管理** - 贴纸包满了自动创建新包（每包120个）
+- 💬 **行内模式** - 在任意聊天输入 `@你的机器人 文字` 即可使用
+- ✨ **保留格式** - 保留空格、换行等原始排版
+- 🚫 **跳过表情** - 自动保留已有 Unicode 表情，不重复转换
 
-- **Universal Text Support**: Convert text in any language to custom emoji stickers - Chinese, Japanese, Korean, Arabic, Cyrillic, Latin, emoji, symbols, and more
-- **Multiple Fonts**: Auto-discover and manage fonts from `assets/fonts/` directory
-- **Smart Caching**: Characters are rendered once per font and cached as custom emojis
-- **Sticker Pack Management**: Automatic pack creation when capacity (120 stickers) is reached
-- **Inline Mode**: Use `@YourBot text` in any chat to convert text inline
-- **Preserve Layout**: Maintains original text formatting including spaces and line breaks
-- **Unicode Emoji Support**: Automatically skips existing Unicode emojis
+## 快速开始
 
-## Quick Start
+### 1. 安装依赖
 
-### Prerequisites
-
-- Python 3.12+
-- [UV](https://github.com/astral-sh/uv) package manager
-- Telegram Bot Token from [@BotFather](https://t.me/BotFather)
-- Fonts in `assets/fonts/` directory (`.ttf`, `.otf`, `.ttc`)
-
-### Installation
+需要 Python 3.12+ 和 [UV](https://github.com/astral-sh/uv) 包管理器：
 
 ```bash
-# Clone repository
+# 克隆仓库
 git clone https://github.com/yourusername/ekanji-bot.git
 cd ekanji-bot
 
-# Create virtual environment and install dependencies
+# 创建虚拟环境并安装依赖
 uv venv --python 3.12
 uv sync
-
-# Copy environment template
-cp .env.example .env
-# Edit .env with your BOT_TOKEN
-
-# Run the bot
-uv run bot.py
 ```
 
-### Docker Deployment
+### 2. 配置环境
+
+复制示例配置文件并编辑：
 
 ```bash
-# Using the provided script
-sudo sh start.sh
-
-# Or manually with docker-compose
-docker-compose up -d
+cp .env.example .env
+# 编辑 .env 文件，填入你的 Bot Token
 ```
 
-## Configuration
+`.env` 文件内容：
 
-Create a `.env` file with the following variables:
+```
+BOT_TOKEN=your_bot_token_here
+DEBUG=false
+```
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `BOT_TOKEN` | Yes | Telegram Bot API token from @BotFather |
-| `BOT_PROXY` | No | Proxy URL for API requests (e.g., `socks5://host:port`) |
-| `DEBUG` | No | Enable debug logging (`true` or `false`) |
-| `DATABASE_URL` | No | SQLite database URL (default: `sqlite+aiosqlite:///./data/bot.db`) |
+获取 Bot Token：
+1. 在 Telegram 搜索 [@BotFather](https://t.me/BotFather)
+2. 发送 `/newbot` 创建新机器人
+3. 复制获得的 Token 到 `.env` 文件
 
-### Font Configuration
+### 3. 添加字体
 
-Place your font files in `assets/fonts/`. The bot supports any TrueType or OpenType font - add fonts for your specific languages:
+把字体文件放入 `assets/fonts/` 目录：
 
 ```
 assets/
 └── fonts/
-    ├── 萝莉体第二版.ttf          # Chinese/Japanese
-    ├── NotoSansCJK.ttc           # CJK unified
-    ├── Arial.ttf                 # Latin
-    ├── DejaVuSans.ttf            # Latin extended
-    ├── Amiri.ttf                 # Arabic
-    └── NotoSansCyrillic.ttf      # Cyrillic
+    ├── 萝莉体第二版.ttf      # 中文字体
+    ├── Arial.ttf            # 英文字体
+    ├── Amiri.ttf            # 阿拉伯字体
+    └── NotoSansCyrillic.ttf # 俄文字体
 ```
 
-Supported font formats: `.ttf`, `.otf`, `.ttc`, `.woff`, `.woff2`
+支持格式：`.ttf`, `.otf`, `.ttc`, `.woff`, `.woff2`
 
-The bot will automatically:
-- Discover fonts on startup
-- Add new fonts to the database
-- Deactivate missing fonts
-- Set the first font alphabetically as default
-
-## Usage
-
-### Basic Commands
-
-- `/start` - Welcome message and usage instructions
-- `/fonts` - List available fonts
-- `/lang` - Language settings (planned)
-
-### Converting Text
-
-Simply send any text message:
-
-```
-Hello World
-```
-
-The bot will reply with custom emoji stickers:
-
-```
-🎨🎨🎨🎨🎨 🎨🎨🎨🎨
-```
-
-*(Where each 🎨 is actually a custom emoji with the corresponding letter)*
-
-### Inline Mode
-
-Use the bot inline in any chat:
-
-```
-@YourBot Hello World
-```
-
-Then select from the results to send the emojis.
-
-## Project Structure
-
-```
-ekhanji-bot/
-├── bot.py                      # Main entry point
-├── core/
-│   ├── config.py              # Pydantic settings
-│   └── database.py            # SQLAlchemy async setup
-├── db/
-│   ├── models/                # SQLModel definitions
-│   │   ├── user.py
-│   │   ├── font.py
-│   │   ├── character_glyph.py
-│   │   └── sticker_set.py
-│   └── repositories/          # Data access layer
-├── handlers/                  # Telegram message handlers
-│   ├── commands/              # /start, /fonts
-│   ├── messages/              # Text messages
-│   └── inline/                # Inline queries
-├── services/                  # Business logic
-│   ├── sticker_service.py     # Emoji conversion
-│   ├── image_service.py       # Pillow rendering
-│   ├── font_sync_service.py   # Font management
-│   └── user_service.py        # User operations
-├── middlewares/               # aiogram middlewares
-├── assets/
-│   └── fonts/                 # Font files (gitignored)
-├── pyproject.toml             # UV project config
-├── docker-compose.yaml        # Docker orchestration
-└── start.sh                   # Docker management script
-```
-
-## Development
-
-### Code Quality
+### 4. 启动机器人
 
 ```bash
-# Run linter
-ruff check .
+# 直接运行
+uv run bot.py
 
-# Format code
-ruff format .
-
-# Type checking (optional)
-mypy .
+# 或使用 Docker
+sudo sh start.sh
 ```
 
-### Database Migrations
+## 使用方法
 
-The bot uses SQLModel with automatic table creation. For manual migrations:
+### 基本命令
 
-```bash
-# Generate migration (if using Alembic)
-alembic revision --autogenerate -m "description"
+- `/start` - 开始使用，查看帮助
+- `/fonts` - 查看可用字体列表
 
-# Apply migration
-alembic upgrade head
+### 转换文字
+
+直接发送任何文字即可：
+
+```
+你好世界
 ```
 
-## Technical Details
+机器人会回复对应的表情贴纸：
 
-### Sticker Size Limits
-
-- **Per Pack**: 120 custom emoji stickers
-- **Packs Per User**: Unlimited
-- **Sticker Size**: 100x100 pixels (WebP format)
-- **Rendering**: Pillow with TrueType fonts
-
-### UTF-16 Positioning
-
-Telegram's API uses UTF-16 code units for entity offsets. The bot handles:
-- Multi-byte Unicode characters (CJK, emoji)
-- Surrogate pairs for emoji > U+FFFF
-- Existing custom emoji preservation
-
-### Concurrency
-
-- **Image Rendering**: ThreadPoolExecutor (4 workers)
-- **Sticker Uploads**: Semaphore (5 concurrent)
-- **Pack Creation**: Per-user asyncio.Lock
-
-## Troubleshooting
-
-### No fonts available
-
-```bash
-# Check fonts directory
-ls -la assets/fonts/
-
-# Copy system fonts (Linux)
-# For CJK: cp /usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc assets/fonts/
-# For Latin: cp /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf assets/fonts/
+```
+🎨🎨 🎨🎨
 ```
 
-### Database errors
+（每个 🎨 实际是对应文字的自定义表情）
 
-```bash
-# Reset database (will lose character cache)
-rm -rf data/
+### 行内模式
 
-# Note: Sticker packs in Telegram will be orphaned and recreated
+在任意聊天窗口输入：
+
+```
+@你的机器人 你好
 ```
 
-### Sticker pack conflicts
+选择搜索结果即可发送表情。
 
-If you see `STICKERSET_INVALID` errors, the bot will automatically:
-1. Delete orphaned packs from Telegram
-2. Create fresh packs at new indices
-3. Re-render characters as needed
 
-## Contributing
+## 许可证
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing`)
-3. Commit changes (`git commit -m 'Add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing`)
-5. Open a Pull Request
-
-### Code Style
-
-- Follow [Google Python Style Guide](https://google.github.io/styleguide/pyguide.html)
-- Use type hints throughout
-- Write docstrings for all public functions/classes
-- Run `ruff check .` before committing
-
-## License
-
-MIT License - see [LICENSE](LICENSE) file for details.
-
-## Acknowledgments
-
-- [aiogram](https://docs.aiogram.dev/) - Modern Telegram Bot API framework
-- [SQLModel](https://sqlmodel.tiangolo.com/) - SQL databases in Python
-- [Pillow](https://pillow.readthedocs.io/) - Python Imaging Library
-- [UV](https://github.com/astral-sh/uv) - Fast Python package manager
-
----
-
-**Note**: Font files are excluded from git due to copyright. Please use your own licensed fonts.
+MIT License
