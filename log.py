@@ -14,7 +14,7 @@ logger_format = (
     "<green>{time:HH:mm:ss}</green> | "
     "<level>{level: <8}</level> | "
     "<cyan>{name}:{function}:{line}</cyan> | "
-    "<level>[{extra[name]}] {message}</level>"
+    "<level>{message}</level>"
 )
 
 

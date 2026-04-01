@@ -1,0 +1,38 @@
+"""Sticker set model for quota management."""
+
+from datetime import datetime
+from typing import TYPE_CHECKING
+
+from sqlmodel import Field, Relationship, SQLModel
+
+from db.models.base import CreatedAtField, UpdatedAtField
+
+if TYPE_CHECKING:
+    from db.models.user import User
+
+
+class StickerSet(SQLModel, table=True):
+    """Sticker set table for managing pack quotas."""
+
+    __tablename__ = "sticker_sets"
+
+    id: int | None = Field(default=None, primary_key=True)
+    pack_name: str = Field(max_length=64, unique=True, description="Telegram sticker set name")
+    pack_index: int = Field(description="Pack number for this user")
+    sticker_count: int = Field(default=0, description="Current number of stickers")
+    max_stickers: int = Field(default=120, description="Maximum stickers allowed (120 per pack, unlimited packs)")
+    pack_type: str = Field(default="custom_emoji", max_length=20)
+    is_full: bool = Field(default=False, description="Whether pack is full")
+    is_active: bool = Field(default=True)
+    created_at: datetime = CreatedAtField()
+    updated_at: datetime = UpdatedAtField()
+
+    # Foreign key
+    user_id: int = Field(foreign_key="users.id", index=True)
+
+    # Relationships
+    user: "User" = Relationship(back_populates="sticker_sets")
+
+    def has_space(self) -> bool:
+        """Check if pack has space for more stickers."""
+        return not self.is_full and self.sticker_count < self.max_stickers

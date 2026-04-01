@@ -2,3 +2,26 @@
 logs
 .env
 sessions
+data/*.db
+data/uploads/
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+
+# Font files (copyright concerns)
+assets/fonts/*.ttf
+assets/fonts/*.otf
+assets/fonts/*.ttc
+assets/fonts/*.woff
+assets/fonts/*.woff2
+
+# IDE
+.idea/
+.vscode/
+
+# Data directory
+data/
+
+# Keep .gitkeep for empty directories
+!assets/fonts/.gitkeep
