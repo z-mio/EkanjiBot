@@ -425,7 +425,10 @@ class StickerService:
         for idx, char in enumerate(text):
             if idx in skip_char_indices:
                 continue
-            # Note: whitespace IS processed (renders as transparent emoji)
+            # Skip newlines - keep original line break format
+            if char == "\n":
+                continue
+            # Whitespace (spaces) IS processed (renders as transparent emoji)
             if is_unicode_emoji(char):
                 logger.debug(f"Skipping Unicode emoji: {repr(char)}")
                 continue
