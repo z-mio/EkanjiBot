@@ -111,7 +111,6 @@ async def process_text_with_random_fonts(
         for char, image in zip(chars, images, strict=False):
             try:
                 task = StickerCreationTask(
-                    user_id=user_id,
                     character=char,
                     font_id=font_id,
                     font_path=font_path,

@@ -22,6 +22,7 @@ from aiogram.types import BufferedInputFile, InputSticker, MessageEntity
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.config import bs
 from db.repositories.character_glyph_repo import CharacterGlyphRepository
 from db.repositories.sticker_set_repo import StickerSetRepository
 from services.image_service import ImageRenderer
@@ -32,7 +33,6 @@ class StickerCreationTask:
     """Task for creating a single sticker.
 
     Attributes:
-        user_id: Telegram user ID.
         character: Character to convert.
         font_id: Font database ID.
         font_path: Path to font file.
@@ -43,7 +43,6 @@ class StickerCreationTask:
         error: Will hold exception if failed.
     """
 
-    user_id: int
     character: str
     font_id: int
     font_path: Path
@@ -174,10 +173,10 @@ class StickerTaskQueue:
             logger.debug(f"Cache hit for '{task.character}' (font={task.font_id})")
             return existing.custom_emoji_id
 
-        # Get or create pack
-        pack, is_new_pack = await self._get_or_create_pack(task.user_id, task.bot_username, pack_repo, session)
+        # Get or create pack (uses bs.user_id from config)
+        pack, is_new_pack = await self._get_or_create_pack(task.bot_username, pack_repo, session)
 
-        # Upload to Telegram
+        # Upload to Telegram (uses bs.user_id from config)
         input_sticker = InputSticker(
             sticker=BufferedInputFile(task.image_bytes, filename=f"{ord(task.character):04x}.webp"),
             emoji_list=["✏️"],
@@ -186,7 +185,7 @@ class StickerTaskQueue:
 
         if is_new_pack:
             await self._bot.create_new_sticker_set(
-                user_id=task.user_id,
+                user_id=bs.user_id,
                 name=pack.pack_name,
                 title=f"Ekanji #{pack.pack_index}",
                 stickers=[input_sticker],
@@ -196,9 +195,7 @@ class StickerTaskQueue:
             pack.sticker_count = 1
             await session.flush()
         else:
-            success = await self._bot.add_sticker_to_set(
-                user_id=task.user_id, name=pack.pack_name, sticker=input_sticker
-            )
+            success = await self._bot.add_sticker_to_set(user_id=bs.user_id, name=pack.pack_name, sticker=input_sticker)
             if not success:
                 raise Exception(f"Failed to add sticker for character: {task.character}")
 
@@ -223,11 +220,12 @@ class StickerTaskQueue:
         logger.info(f"Created sticker for '{task.character}' -> {new_sticker.custom_emoji_id}")
         return new_sticker.custom_emoji_id
 
-    async def _get_or_create_pack(self, user_id: int, bot_username: str, pack_repo, session):
+    async def _get_or_create_pack(self, bot_username: str, pack_repo, session):
         """Get available global pack or create new one.
 
+        Uses bs.user_id from config for sticker pack ownership.
+
         Args:
-            user_id: Telegram user ID (for creating new pack only).
             bot_username: Bot username.
             pack_repo: StickerSetRepository.
             session: Database session.
@@ -242,7 +240,7 @@ class StickerTaskQueue:
         if pack:
             return pack, False
 
-        # Create new pack
+        # Create new pack with user_id from config
         pack_index = await pack_repo.get_next_pack_index()
         pack_name = f"p{pack_index}_by_{bot_username}"
 
@@ -251,7 +249,7 @@ class StickerTaskQueue:
 
         # Create in database
         pack = StickerSet(
-            created_by=user_id,
+            created_by=bs.user_id,
             pack_name=pack_name,
             pack_index=pack_index,
             max_stickers=120,
@@ -465,7 +463,6 @@ class StickerService:
             # Create tasks and wait for results (serial processing)
             for char, image in zip(chars_to_create, images, strict=False):
                 task = StickerCreationTask(
-                    user_id=user_id,
                     character=char,
                     font_id=font_id,
                     font_path=font_path,

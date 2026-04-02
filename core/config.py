@@ -23,6 +23,7 @@ class BotSettings(BaseSettings):
 
     Attributes:
         bot_token: Telegram Bot API token from @BotFather
+        user_id: Telegram user ID for sticker pack ownership
         bot_proxy: Optional proxy URL for API requests
         debug: Enable debug logging mode
         database_url: SQLAlchemy async database connection URL
@@ -35,6 +36,7 @@ class BotSettings(BaseSettings):
     )
 
     bot_token: str
+    user_id: int = Field(description="Telegram user ID for sticker pack ownership (get from @userinfobot)")
     bot_proxy: str | None = Field(default=None)
     debug: bool = Field(default=False)
 

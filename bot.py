@@ -135,6 +135,14 @@ async def on_shutdown(bot: Bot) -> None:
 
 def main() -> None:
     """Main entry point."""
+    # Validate required configuration
+    if not bs.user_id:
+        logger.error("USER_ID environment variable is required!")
+        logger.error("Please set USER_ID in .env file (get your Telegram ID from @userinfobot)")
+        raise SystemExit(1)
+
+    logger.info(f"Sticker pack owner user ID: {bs.user_id}")
+
     setup_optimized_event_loop()
 
     dp = Dispatcher()

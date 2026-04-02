@@ -7,6 +7,7 @@ management for Telegram bot users.
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models.user import User
+from db.repositories.font_repo import FontRepository
 from db.repositories.user_repo import UserRepository
 
 
@@ -25,6 +26,7 @@ class UserService:
         """
         self.session = session
         self.repo = UserRepository(session)
+        self.font_repo = FontRepository(session)
 
     async def register_user(
         self,
@@ -37,6 +39,7 @@ class UserService:
 
         If a user with the given Telegram ID already exists, their profile
         is updated with the latest information.
+        If this is a new user, their preferred font is set to the default font.
 
         Args:
             telegram_id: User's Telegram ID.
@@ -47,12 +50,24 @@ class UserService:
         Returns:
             Created or updated User model instance.
         """
-        return await self.repo.get_or_create(
-            telegram_id=telegram_id,
-            username=username,
-            full_name=full_name,
-            language=language,
-        )
+        user = await self.repo.get_by_telegram_id(telegram_id)
+        if user:
+            # Update user info if changed
+            if user.username != username or user.full_name != full_name:
+                user.username = username
+                user.full_name = full_name
+                await self.session.flush()
+            return user
+
+        # Create new user
+        new_user = User(telegram_id=telegram_id, username=username, full_name=full_name, language=language)
+
+        # Set default font for new user
+        fonts = await self.font_repo.get_active_fonts()
+        if fonts:
+            new_user.preferred_font_id = fonts[0].id
+
+        return await self.repo.create(new_user)
 
     async def get_user(self, telegram_id: int) -> User | None:
         """Get user by Telegram ID.
