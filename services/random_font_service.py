@@ -71,15 +71,51 @@ async def process_text_with_random_fonts(
     renderer = ImageRenderer()
     task_queue = StickerTaskQueue.get_instance()
 
-    # Step 1: Assign random font to each position (not unique character)
-    # This ensures same character at different positions can have different fonts
-    position_to_font: dict[int, Font] = {}
+    # Step 1: Extract unique characters to process (skip newlines, Unicode emoji)
+    chars_to_process = []
+    seen = set()
 
-    for idx, char in enumerate(text):
-        # Skip newlines - keep original line break format
+    for char in text:
         if char == "\n":
             continue
-        # Filter fonts that support this character
+        if char not in seen:
+            chars_to_process.append(char)
+            seen.add(char)
+
+    if not chars_to_process:
+        return text, []
+
+    # Step 2: Batch check cache for all character+font combinations (cache first)
+    all_char_font_pairs = []
+    for char in chars_to_process:
+        for font in fonts:
+            all_char_font_pairs.append((char, font.id))
+    unique_pairs = list(set(all_char_font_pairs))
+    cached_results = await glyph_repo.get_by_characters_and_fonts(unique_pairs)
+
+    # Step 3: Assign font to each position (random, cache-first)
+    position_to_font: dict[int, Font] = {}
+    position_to_emoji_id: dict[int, str] = {}
+
+    for idx, char in enumerate(text):
+        if char == "\n":
+            continue
+
+        # Check if any font has this character cached
+        cached_fonts = []
+        for font in fonts:
+            emoji_id = cached_results.get((char, font.id))
+            if emoji_id:
+                cached_fonts.append((font, emoji_id))
+
+        if cached_fonts:
+            # Cache hit - use cached font (random selection among cached fonts)
+            font, emoji_id = random.choice(cached_fonts)
+            position_to_font[idx] = font
+            position_to_emoji_id[idx] = emoji_id
+            continue
+
+        # Cache miss - check font support and assign font
         supporting_fonts = [f for f in fonts if renderer.supports_character(f.get_absolute_path(), char)]
 
         if supporting_fonts:
@@ -88,26 +124,20 @@ async def process_text_with_random_fonts(
             # No font supports this character - will be preserved as-is
             logger.debug(f"No font supports character: {repr(char)} at position {idx}")
 
-    # Step 2: Batch check cache for all character+font combinations
-    char_font_pairs = [(text[idx], font.id) for idx, font in position_to_font.items()]
-    # Deduplicate pairs for cache query
-    unique_pairs = list(set(char_font_pairs))
-    cached_results = await glyph_repo.get_by_characters_and_fonts(unique_pairs)
-
-    # Step 3: Group missing characters by font for batch rendering
+    # Step 4: Group missing characters by font for batch rendering
     chars_by_font: dict[int, set[str]] = {}
     for idx, font in position_to_font.items():
+        if idx in position_to_emoji_id:
+            continue  # Already cached
         char = text[idx]
-        key = (char, font.id)
-        if key not in cached_results:
-            if font.id not in chars_by_font:
-                chars_by_font[font.id] = set()
-            chars_by_font[font.id].add(char)
+        if font.id not in chars_by_font:
+            chars_by_font[font.id] = set()
+        chars_by_font[font.id].add(char)
 
     # Convert sets to lists for rendering
     chars_by_font_lists: dict[int, list[str]] = {font_id: list(chars) for font_id, chars in chars_by_font.items()}
 
-    # Step 4: Render and create stickers for missing characters (serial via queue)
+    # Step 5: Render and create stickers for missing characters (serial via queue)
     new_emoji_ids: dict[tuple[str, int], str] = {}
 
     for font_id, chars in chars_by_font_lists.items():
@@ -117,7 +147,7 @@ async def process_text_with_random_fonts(
         if not font_path.exists():
             continue
 
-        # Batch render all characters for this font (support already checked above)
+        # Batch render all characters for this font
         images = await renderer.render_batch(chars, font_path, check_support=False)
 
         # Submit tasks to queue and wait for results (serial processing)
@@ -136,10 +166,10 @@ async def process_text_with_random_fonts(
                 logger.exception(f"Failed to create sticker for '{char}'")
                 # Continue with other characters
 
-    # Step 5: Merge cached and new results
+    # Step 6: Merge cached and new results
     all_emoji_ids = {**cached_results, **new_emoji_ids}
 
-    # Step 6: Build final text with entity mapping (each position gets its own font)
+    # Step 7: Build final text with entity mapping (each position gets its own font)
     final_text = ""
     final_entities: list[MessageEntity] = []
     current_offset = 0
@@ -151,7 +181,7 @@ async def process_text_with_random_fonts(
             current_offset += _get_utf16_length(char)
             continue
 
-        emoji_id = all_emoji_ids.get((char, font.id))
+        emoji_id = position_to_emoji_id.get(idx) or all_emoji_ids.get((char, font.id))
         if not emoji_id:
             final_text += char
             current_offset += _get_utf16_length(char)

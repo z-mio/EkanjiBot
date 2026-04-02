@@ -418,8 +418,8 @@ class StickerService:
         logger.debug(f"skip_char_indices: {sorted(skip_char_indices)}")
         logger.debug(f"Total chars: {len(text)}, text: {repr(text)}")
 
-        # Extract unique convertible characters
-        convertible_chars = []
+        # Step 1: Extract unique characters to process (skip newlines, Unicode emoji, existing custom emoji)
+        chars_to_process = []
         seen = set()
 
         for idx, char in enumerate(text):
@@ -428,35 +428,40 @@ class StickerService:
             # Skip newlines - keep original line break format
             if char == "\n":
                 continue
-            # Whitespace (spaces) IS processed (renders as transparent emoji)
+            # Skip Unicode emoji
             if is_unicode_emoji(char):
                 logger.debug(f"Skipping Unicode emoji: {repr(char)}")
                 continue
-            # Skip characters not supported by font (cmap check - very fast)
-            if not self.renderer.supports_character(font_path, char):
-                logger.debug(f"Skipping unsupported character: {repr(char)} (font: {font_path.name})")
-                continue
             if char not in seen:
-                convertible_chars.append(char)
+                chars_to_process.append(char)
                 seen.add(char)
 
-        if not convertible_chars:
+        if not chars_to_process:
             return text, []
 
-        # Check cache using batch query (1 query instead of N)
-        char_font_pairs = [(char, font_id) for char in convertible_chars]
+        # Step 2: Batch check cache FIRST (cache first, then check font support)
+        char_font_pairs = [(char, font_id) for char in chars_to_process]
         cache_map = await self.glyph_repo.get_by_characters_and_fonts(char_font_pairs)
 
-        # Build emoji mapping
+        # Step 3: For cache misses, check font support and create if supported
         char_to_emoji_id: dict[str, str] = {}
-        chars_to_create: list[str] = []
 
-        for char in convertible_chars:
+        # Handle cache hits - direct use, no font check needed
+        for char in chars_to_process:
             emoji_id = cache_map.get((char, font_id))
             if emoji_id:
                 char_to_emoji_id[char] = emoji_id
-            else:
-                chars_to_create.append(char)
+
+        # Handle cache misses - check font support before creating
+        chars_to_create = []
+        for char in chars_to_process:
+            if (char, font_id) in cache_map:
+                continue  # Already cached, skip
+            # Check font support only for cache misses
+            if not self.renderer.supports_character(font_path, char):
+                logger.debug(f"Skipping unsupported character: {repr(char)} (font: {font_path.name})")
+                continue
+            chars_to_create.append(char)
 
         # Create missing characters via serial task queue
         if chars_to_create:
