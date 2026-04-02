@@ -21,20 +21,17 @@ class StickerSetRepository(BaseRepository[StickerSet]):
         result = await self.session.execute(select(StickerSet).where(StickerSet.pack_name == pack_name))
         return result.scalar_one_or_none()
 
-    async def get_user_packs(self, user_id: int) -> list[StickerSet]:
-        """Get all sticker packs for a user."""
-        result = await self.session.execute(
-            select(StickerSet).where(StickerSet.user_id == user_id).order_by(StickerSet.pack_index)
-        )
+    async def get_all_packs(self) -> list[StickerSet]:
+        """Get all sticker packs."""
+        result = await self.session.execute(select(StickerSet).order_by(StickerSet.pack_index))
         return list(result.scalars().all())
 
-    async def get_available_pack(self, user_id: int) -> StickerSet | None:
-        """Get a non-full sticker pack for user."""
+    async def get_available_pack(self) -> StickerSet | None:
+        """Get a non-full global sticker pack."""
         result = await self.session.execute(
             select(StickerSet)
             .where(
                 and_(
-                    StickerSet.user_id == user_id,
                     StickerSet.is_full.is_(False),
                     StickerSet.is_active.is_(True),
                     StickerSet.sticker_count < StickerSet.max_stickers,
@@ -45,11 +42,9 @@ class StickerSetRepository(BaseRepository[StickerSet]):
         )
         return result.scalar_one_or_none()
 
-    async def get_next_pack_index(self, user_id: int) -> int:
-        """Get next available pack index for user."""
-        result = await self.session.execute(
-            select(func.max(StickerSet.pack_index)).where(StickerSet.user_id == user_id)
-        )
+    async def get_next_pack_index(self) -> int:
+        """Get next available global pack index."""
+        result = await self.session.execute(select(func.max(StickerSet.pack_index)))
         max_index = result.scalar() or 0
         return max_index + 1
 

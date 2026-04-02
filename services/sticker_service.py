@@ -188,7 +188,7 @@ class StickerTaskQueue:
             await self._bot.create_new_sticker_set(
                 user_id=task.user_id,
                 name=pack.pack_name,
-                title=f"Custom Emoji Pack #{pack.pack_index}",
+                title=f"Ekanji #{pack.pack_index}",
                 stickers=[input_sticker],
                 sticker_type="custom_emoji",
                 needs_repainting=True,
@@ -224,10 +224,10 @@ class StickerTaskQueue:
         return new_sticker.custom_emoji_id
 
     async def _get_or_create_pack(self, user_id: int, bot_username: str, pack_repo, session):
-        """Get available pack or create new one.
+        """Get available global pack or create new one.
 
         Args:
-            user_id: Telegram user ID.
+            user_id: Telegram user ID (for creating new pack only).
             bot_username: Bot username.
             pack_repo: StickerSetRepository.
             session: Database session.
@@ -237,31 +237,21 @@ class StickerTaskQueue:
         """
         from db.models.sticker_set import StickerSet
 
-        pack = await pack_repo.get_available_pack(user_id)
+        # Get any available global pack
+        pack = await pack_repo.get_available_pack()
         if pack:
             return pack, False
 
         # Create new pack
-        existing_packs = await pack_repo.get_user_packs(user_id)
-        existing_indices = {p.pack_index for p in existing_packs}
-
-        pack_index = 1
-        while pack_index in existing_indices:
-            pack_index += 1
-
-        pack_name = f"u{user_id}_p{pack_index}_by_{bot_username}"
-
-        # Check for existing pack in DB
-        existing_pack = await pack_repo.get_by_pack_name(pack_name)
-        if existing_pack:
-            return existing_pack, False
+        pack_index = await pack_repo.get_next_pack_index()
+        pack_name = f"p{pack_index}_by_{bot_username}"
 
         # Handle orphaned Telegram packs
-        pack_name = await self._handle_orphaned_packs(user_id, bot_username, pack_name, pack_index)
+        pack_name = await self._handle_orphaned_packs(bot_username, pack_name, pack_index)
 
         # Create in database
         pack = StickerSet(
-            user_id=user_id,
+            created_by=user_id,
             pack_name=pack_name,
             pack_index=pack_index,
             max_stickers=120,
@@ -272,11 +262,10 @@ class StickerTaskQueue:
 
         return pack, True
 
-    async def _handle_orphaned_packs(self, user_id: int, bot_username: str, pack_name: str, pack_index: int) -> str:
+    async def _handle_orphaned_packs(self, bot_username: str, pack_name: str, pack_index: int) -> str:
         """Handle orphaned Telegram packs from database resets.
 
         Args:
-            user_id: Telegram user ID.
             bot_username: Bot username.
             pack_name: Initial pack name to check.
             pack_index: Initial pack index.
@@ -298,7 +287,7 @@ class StickerTaskQueue:
                             logger.error(f"Failed to delete pack {pack_name}: {e}")
 
                     pack_index += 1
-                    pack_name = f"u{user_id}_p{pack_index}_by_{bot_username}"
+                    pack_name = f"p{pack_index}_by_{bot_username}"
             except Exception:
                 # Pack doesn't exist, name is available
                 break

@@ -14,9 +14,22 @@ class FontRepository(BaseRepository[Font]):
         super().__init__(session, Font)
 
     async def get_active_fonts(self) -> list[Font]:
-        """Get all active fonts."""
+        """Get all active fonts sorted with letters first, then by name.
+
+        Sort order:
+        1. Names starting with letters (alphabetically)
+        2. Names starting with other characters like numbers (alphabetically)
+        """
         result = await self.session.execute(select(Font).where(Font.is_active.is_(True)))
-        return list(result.scalars().all())
+        fonts = list(result.scalars().all())
+
+        # Sort: letters first, then by name
+        def sort_key(font: Font) -> tuple[int, str]:
+            first_char = font.name[0] if font.name else ""
+            is_letter = 0 if first_char.isalpha() else 1
+            return (is_letter, font.name.lower())
+
+        return sorted(fonts, key=sort_key)
 
     async def get_all_fonts(self) -> list[Font]:
         """Get all fonts including inactive ones."""

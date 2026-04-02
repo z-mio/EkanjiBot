@@ -41,17 +41,23 @@ async def handle_inline_query(
     """Handle inline query - return placeholder message.
 
     The actual conversion happens automatically via ChosenInlineResult.
-    Supports "rf" prefix for random font mode.
+    Supports "rf" prefix for random font mode:
+    - @bot rf测试 (no space)
+    - @bot rf 测试 (with space)
     """
     query_text = inline_query.query or ""
     if not query_text.strip():
         await inline_query.answer([], cache_time=1)
         return
 
-    # Check for random font prefix "rf "
-    is_random_font = query_text.startswith("rf ")
+    # Check for random font prefix "rf" (with or without space)
+    is_random_font = query_text.lower().startswith("rf")
     if is_random_font:
-        display_text = query_text[3:]  # Strip "rf " prefix for display
+        # Strip "rf" prefix, handle both "rf测试" and "rf 测试"
+        remaining = query_text[2:]
+        if remaining.startswith(" "):
+            remaining = remaining[1:]  # Strip space if present
+        display_text = remaining
     else:
         display_text = query_text
 

@@ -45,5 +45,5 @@ class User(SQLModel, table=True):
     updated_at: datetime = UpdatedAtField()
 
     # Relationships
-    sticker_sets: list["StickerSet"] = Relationship(back_populates="user")
+    created_packs: list["StickerSet"] = Relationship(back_populates="creator")
     preferred_font: "Font" = Relationship()

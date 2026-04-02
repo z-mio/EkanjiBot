@@ -188,5 +188,5 @@ class FontSyncService:
         if not active_fonts:
             return None
 
-        # Sort by name alphabetically, return first
-        return min(active_fonts, key=lambda f: f.name.lower())
+        # List is already sorted by name, return first
+        return active_fonts[0]
