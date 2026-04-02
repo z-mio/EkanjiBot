@@ -158,12 +158,14 @@ class StickerTaskQueue:
         """Process a single sticker creation task.
 
         Args:
-            task: Task to process.
+            task: Sticker creation task.
             session: Database session.
 
         Returns:
             Custom emoji ID.
         """
+        from aiogram.exceptions import TelegramBadRequest
+
         glyph_repo = CharacterGlyphRepository(session)
         pack_repo = StickerSetRepository(session)
 
@@ -195,12 +197,38 @@ class StickerTaskQueue:
             pack.sticker_count = 1
             await session.flush()
         else:
-            success = await self._bot.add_sticker_to_set(user_id=bs.user_id, name=pack.pack_name, sticker=input_sticker)
-            if not success:
-                raise Exception(f"Failed to add sticker for character: {task.character}")
+            try:
+                success = await self._bot.add_sticker_to_set(
+                    user_id=bs.user_id, name=pack.pack_name, sticker=input_sticker
+                )
+                if not success:
+                    raise Exception(f"Failed to add sticker for character: {task.character}")
 
-            # Increment count
-            await pack_repo.increment_sticker_count(pack.id)
+                # Increment count on success
+                await pack_repo.increment_sticker_count(pack.id)
+            except TelegramBadRequest as e:
+                # Handle invalid sticker set - mark as inactive and create new pack
+                if "STICKERSET_INVALID" in str(e) or "STICKERSET_NOT_FOUND" in str(e):
+                    logger.warning(f"Sticker set {pack.pack_name} is invalid, creating new pack")
+                    pack.is_active = False
+                    await session.flush()
+
+                    # Create new pack
+                    pack, _ = await self._get_or_create_pack(task.bot_username, pack_repo, session)
+
+                    # Create new sticker set
+                    await self._bot.create_new_sticker_set(
+                        user_id=bs.user_id,
+                        name=pack.pack_name,
+                        title=f"Ekanji #{pack.pack_index}",
+                        stickers=[input_sticker],
+                        sticker_type="custom_emoji",
+                        needs_repainting=True,
+                    )
+                    pack.sticker_count = 1
+                    await session.flush()
+                else:
+                    raise
 
         # Get the newly added sticker
         sticker_set = await self._bot.get_sticker_set(name=pack.pack_name)
