@@ -1,6 +1,6 @@
 """Character glyph repository for managing character to emoji mappings."""
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models.character_glyph import CharacterGlyph
@@ -26,6 +26,50 @@ class CharacterGlyphRepository(BaseRepository[CharacterGlyph]):
             .limit(1)
         )
         return result.scalar_one_or_none()
+
+    async def get_by_characters_and_fonts(
+        self,
+        char_font_pairs: list[tuple[str, int]],
+    ) -> dict[tuple[str, int], str]:
+        """Batch get glyph emoji IDs for multiple character+font combinations.
+
+        This is much more efficient than calling get_by_character_and_font
+        in a loop (N queries vs 1 query).
+
+        Args:
+            char_font_pairs: List of (character, font_id) tuples to look up.
+
+        Returns:
+            Dictionary mapping (character, font_id) -> custom_emoji_id.
+            Only includes entries that were found in cache.
+        """
+        if not char_font_pairs:
+            return {}
+
+        # Build OR conditions for each character+font pair
+        conditions = [
+            and_(CharacterGlyph.character == char, CharacterGlyph.font_id == font_id)
+            for char, font_id in char_font_pairs
+        ]
+
+        # Execute single query with OR conditions
+        result = await self.session.execute(
+            select(CharacterGlyph.character, CharacterGlyph.font_id, CharacterGlyph.custom_emoji_id)
+            .where(or_(*conditions))
+            .order_by(CharacterGlyph.id.asc())  # Get oldest first
+        )
+
+        # Build result dict, handling potential duplicates by taking first
+        seen: set[tuple[str, int]] = set()
+        emoji_ids: dict[tuple[str, int], str] = {}
+
+        for char, font_id, emoji_id in result.all():
+            key = (char, font_id)
+            if key not in seen:
+                seen.add(key)
+                emoji_ids[key] = emoji_id
+
+        return emoji_ids
 
     async def get_by_custom_emoji_id(self, emoji_id: str) -> CharacterGlyph | None:
         """Get glyph by custom emoji ID."""

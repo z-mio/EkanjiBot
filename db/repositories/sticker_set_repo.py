@@ -2,7 +2,8 @@
 
 import asyncio
 
-from sqlalchemy import and_, func, select
+from loguru import logger
+from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models.sticker_set import StickerSet
@@ -55,18 +56,18 @@ class StickerSetRepository(BaseRepository[StickerSet]):
     async def increment_sticker_count_with_retry(
         self,
         pack_id: int,
-        max_retries: int = 3,
-        base_delay: float = 0.1,
+        max_retries: int = 10,
+        base_delay: float = 0.5,
     ) -> StickerSet | None:
         """Increment sticker count with retry on database lock.
 
-        SQLite can have concurrency issues with concurrent writes.
-        This method retries the update if a lock conflict occurs.
+        Uses atomic UPDATE statement instead of SELECT+UPDATE pattern
+        to minimize lock contention with SQLite.
 
         Args:
             pack_id: Sticker set ID to update.
-            max_retries: Maximum number of retry attempts.
-            base_delay: Base delay between retries (exponential backoff).
+            max_retries: Maximum number of retry attempts (default 10).
+            base_delay: Base delay between retries in seconds (default 0.5s, exponential backoff).
 
         Returns:
             Updated StickerSet or None if not found.
@@ -75,29 +76,35 @@ class StickerSetRepository(BaseRepository[StickerSet]):
 
         for attempt in range(max_retries):
             try:
-                # Use SELECT FOR UPDATE equivalent (SQLite doesn't support it directly)
-                # But we can use a fresh query to get current state
-                result = await self.session.execute(select(StickerSet).where(StickerSet.id == pack_id))
+                # Use atomic UPDATE with RETURNING to get the updated row
+                result = await self.session.execute(
+                    update(StickerSet)
+                    .where(StickerSet.id == pack_id)
+                    .values(sticker_count=StickerSet.sticker_count + 1)
+                    .returning(StickerSet)
+                )
                 pack = result.scalar_one_or_none()
 
                 if not pack:
                     return None
 
-                # Increment and check full status
-                pack.sticker_count += 1
-                if pack.sticker_count >= pack.max_stickers:
+                # Check if pack is now full
+                if pack.sticker_count >= pack.max_stickers and not pack.is_full:
                     pack.is_full = True
+                    await self.session.flush()
 
-                # Try to flush immediately to catch lock errors early
-                await self.session.flush()
                 return pack
 
             except OperationalError as e:
                 if "database is locked" in str(e) and attempt < max_retries - 1:
-                    # Exponential backoff
+                    # Exponential backoff: 0.5s, 1s, 2s, 4s, 8s...
                     delay = base_delay * (2**attempt)
+                    logger.warning(
+                        f"Database locked during increment_sticker_count (attempt {attempt + 1}/{max_retries}), "
+                        f"retrying in {delay:.1f}s"
+                    )
                     await asyncio.sleep(delay)
-                    # Refresh session to clear any pending state
+                    # Rollback to clear any pending transaction state
                     await self.session.rollback()
                     continue
                 raise

@@ -91,8 +91,12 @@ async def init_system_fonts(session) -> None:
         logger.warning("No default font could be determined!")
 
 
-async def on_startup() -> None:
-    """Startup initialization."""
+async def on_startup(bot: Bot) -> None:
+    """Startup initialization.
+
+    Args:
+        bot: Aiogram Bot instance.
+    """
     logger.info("Initializing database...")
     await init_db()
 
@@ -103,12 +107,29 @@ async def on_startup() -> None:
         await init_system_fonts(session)
         await session.commit()
 
+    # Start sticker task queue
+    from services.sticker_service import StickerTaskQueue
+
+    queue = StickerTaskQueue.get_instance()
+    queue.start(bot, AsyncSessionLocal)
+
     logger.info("Bot started successfully!")
 
 
-async def on_shutdown() -> None:
-    """Shutdown cleanup."""
+async def on_shutdown(bot: Bot) -> None:
+    """Shutdown cleanup.
+
+    Args:
+        bot: Aiogram Bot instance.
+    """
     logger.info("Shutting down...")
+
+    # Stop sticker task queue
+    from services.sticker_service import StickerTaskQueue
+
+    queue = StickerTaskQueue.get_instance()
+    await queue.stop()
+
     await close_db()
 
 

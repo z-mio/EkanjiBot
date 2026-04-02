@@ -17,6 +17,9 @@ from services.sticker_service import StickerService
 
 router = Router()
 
+# Maximum characters allowed per message
+MAX_TEXT_LENGTH = 120
+
 
 async def get_user_font(
     db_user: User,
@@ -64,10 +67,11 @@ async def handle_text_to_emoji(
     """Convert user text to custom emoji stickers.
 
     Main workflow:
-        1. Get text and user's preferred font (or default)
-        2. Check cache for existing character glyphs
-        3. Render and upload new characters as needed
-        4. Return formatted message with custom emojis
+        1. Check text length limit
+        2. Get text and user's preferred font (or default)
+        3. Check cache for existing character glyphs
+        4. Render and upload new characters as needed
+        5. Return formatted message with custom emojis
 
     Args:
         message: Incoming Telegram message.
@@ -79,6 +83,14 @@ async def handle_text_to_emoji(
     if not text:
         return
 
+    # Check text length limit
+    if len(text) > MAX_TEXT_LENGTH:
+        await message.reply(
+            f"<b>文字过长</b>\n\n最多支持 <code>{MAX_TEXT_LENGTH}</code> 个字符\n当前: <code>{len(text)}</code> 个字符",
+            parse_mode="HTML",
+        )
+        return
+
     # Get bot username for sticker pack naming
     bot_info = await bot.get_me()
     bot_username = bot_info.username or "bot"
@@ -88,7 +100,7 @@ async def handle_text_to_emoji(
     fonts = await font_service.get_available_fonts()
 
     if not fonts:
-        await message.answer("<b>No fonts available</b>", parse_mode="HTML")
+        await message.answer("<b>暂无可用字体</b>\n\n请联系管理员添加字体文件", parse_mode="HTML")
         return
 
     # Get user's preferred font or default
@@ -97,8 +109,11 @@ async def handle_text_to_emoji(
     font_path = font.get_absolute_path()
 
     if not font_path.exists():
-        await message.answer("<b>Font file not found</b>", parse_mode="HTML")
+        await message.answer("<b>字体文件不存在</b>\n\n请联系管理员修复", parse_mode="HTML")
         return
+
+    # Show processing hint
+    status_msg = await message.reply("<i>⏳ 生成中...</i>", parse_mode="HTML")
 
     # Process text to emojis
     try:
@@ -115,6 +130,9 @@ async def handle_text_to_emoji(
 
         logger.debug(f"Sending text: {result_text}")
         logger.debug(f"Sending entities: {result_entities}")
+
+        # Delete status message and send result
+        await status_msg.delete()
         await message.reply(
             text=result_text,
             entities=result_entities if result_entities else None,
@@ -123,4 +141,4 @@ async def handle_text_to_emoji(
 
     except Exception:
         logger.exception("Error processing text to emoji")
-        await message.reply("<b>Failed to generate emojis</b>", parse_mode="HTML")
+        await status_msg.edit_text("<b>生成失败</b>\n\n请稍后重试", parse_mode="HTML")

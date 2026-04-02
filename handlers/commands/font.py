@@ -33,7 +33,7 @@ async def cmd_list_fonts(message: Message, session: AsyncSession, db_user: User)
     fonts = await font_service.get_available_fonts()
 
     if not fonts:
-        await message.answer("<b>No fonts available</b>", parse_mode="HTML")
+        await message.answer("<b>暂无可用字体</b>\n\n请联系管理员添加字体文件", parse_mode="HTML")
         return
 
     # Get default font (first alphabetically)
@@ -48,16 +48,16 @@ async def cmd_list_fonts(message: Message, session: AsyncSession, db_user: User)
     for i, font in enumerate(fonts, 1):
         labels = []
         if font.id == default_font_id:
-            labels.append("<i>(default)</i>")
+            labels.append("<i>(默认)</i>")
         if font.id == user_preferred_id:
-            labels.append("<i>(your choice)</i>")
+            labels.append("<i>(已选)</i>")
 
         font_label = " ".join(labels)
         font_list.append(f"{i}. <b>{font.name}</b> {font_label}")
 
-    text = "<b>Available Fonts</b>\n\n" + "\n".join(font_list)
-    text += "\n\n<i>Use /sf &lt;font_id&gt; to set your preferred font</i>"
-    text += "\n<i>Send text to generate emojis</i>"
+    text = "<b>可用字体列表</b>\n\n" + "\n".join(font_list)
+    text += "\n\n<i>使用 /sf &lt;字体ID&gt; 设置偏好字体</i>"
+    text += "\n<i>直接发送文字即可生成表情</i>"
 
     await message.answer(text, parse_mode="HTML")
 
@@ -79,10 +79,10 @@ async def cmd_set_font(message: Message, session: AsyncSession, db_user: User) -
 
     if len(command_parts) < 2:
         await message.answer(
-            "<b>Set your preferred font</b>\n\n"
-            "Usage: <code>/sf &lt;font_id&gt;</code>\n\n"
-            "Example: <code>/sf 1</code>\n\n"
-            "Use /fonts to see available fonts and their IDs.",
+            "<b>设置偏好字体</b>\n\n"
+            "用法: <code>/sf &lt;字体ID&gt;</code>\n\n"
+            "示例: <code>/sf 1</code>\n\n"
+            "使用 /fonts 查看可用字体列表",
             parse_mode="HTML",
         )
         return
@@ -91,7 +91,7 @@ async def cmd_set_font(message: Message, session: AsyncSession, db_user: User) -
         font_id = int(command_parts[1])
     except ValueError:
         await message.answer(
-            "<b>Error:</b> Font ID must be a number.\n\nExample: <code>/sf 1</code>",
+            "<b>错误:</b> 字体ID必须是数字\n\n示例: <code>/sf 1</code>",
             parse_mode="HTML",
         )
         return
@@ -102,15 +102,14 @@ async def cmd_set_font(message: Message, session: AsyncSession, db_user: User) -
 
     if not font:
         await message.answer(
-            f"<b>Error:</b> Font with ID {font_id} not found.\n\nUse /fonts to see available fonts.",
+            f"<b>错误:</b> 字体ID {font_id} 不存在\n\n使用 /fonts 查看可用字体",
             parse_mode="HTML",
         )
         return
 
     if not font.is_active:
         await message.answer(
-            f"<b>Error:</b> Font <code>{font.name}</code> is currently unavailable.\n\n"
-            "Use /fonts to see available fonts.",
+            f"<b>错误:</b> 字体 <code>{font.name}</code> 当前不可用\n\n使用 /fonts 查看可用字体",
             parse_mode="HTML",
         )
         return
@@ -122,13 +121,11 @@ async def cmd_set_font(message: Message, session: AsyncSession, db_user: User) -
     if updated_user:
         logger.info(f"User {db_user.telegram_id} set preferred font to {font_id} ({font.name})")
         await message.answer(
-            f"<b>Font set successfully!</b>\n\n"
-            f"Your preferred font is now: <code>{font.name}</code>\n\n"
-            f"Send any text to use this font.",
+            f"<b>设置成功！</b>\n\n偏好字体已设置为: <code>{font.name}</code>\n\n发送任意文字即可使用此字体",
             parse_mode="HTML",
         )
     else:
         await message.answer(
-            "<b>Error:</b> Failed to update font preference. Please try again.",
+            "<b>错误:</b> 设置失败，请重试",
             parse_mode="HTML",
         )

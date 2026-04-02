@@ -11,6 +11,7 @@ from aiogram.types import (
     InlineQuery,
     InlineQueryResultArticle,
     InputTextMessageContent,
+    MessageEntity,
 )
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,9 +20,12 @@ from db.models.font import Font
 from db.models.user import User
 from db.repositories.font_repo import FontRepository
 from services.image_service import FontService
-from services.sticker_service import StickerService
+from services.sticker_service import StickerCreationTask, StickerService
 
 router = Router()
+
+# Maximum characters allowed per request
+MAX_TEXT_LENGTH = 120
 
 # Temporary cache to store query text and flags by result_id
 _query_cache: dict[str, tuple[str, bool]] = {}  # (text, is_random_font)
@@ -123,18 +127,28 @@ async def process_with_random_fonts(
     text: str,
     fonts: list[Font],
     bot_username: str,
-) -> tuple[str, list]:
-    """Process text with random font per character for inline mode."""
-    if not fonts or len(fonts) < 2:
-        # Fall back to single font if not enough fonts
-        font = fonts[0] if fonts else None
-        if not font:
-            return text, []
+) -> tuple[str, list[MessageEntity]]:
+    """Process text with random font per character using serial task queue.
 
+    Args:
+        sticker_service: StickerService instance.
+        user_id: Telegram user ID.
+        text: Input text to convert.
+        fonts: List of available fonts to randomize from.
+        bot_username: Bot username for sticker pack naming.
+
+    Returns:
+        Tuple of (result_text, result_entities).
+    """
+    if not fonts:
+        return text, []
+
+    if len(fonts) < 2:
+        # Single font - use normal processing
+        font = fonts[0]
         font_path = font.get_absolute_path()
         if not font_path.exists():
             return text, []
-
         return await sticker_service.process_text_with_layout(
             user_id=user_id,
             text=text,
@@ -143,57 +157,90 @@ async def process_with_random_fonts(
             bot_username=bot_username,
         )
 
-    # Process each character with random font
-    results = []
+    # Step 1: Assign random font to each unique character (including whitespace)
+    char_to_font: dict[str, Font] = {}
+    unique_chars = set(text)
+    for char in unique_chars:
+        char_to_font[char] = random.choice(fonts)
 
-    for char in text:
-        if char.isspace():
-            results.append((char, None))
-            continue
+    # Step 2: Batch check cache for all character+font combinations
+    char_font_pairs = [(char, font.id) for char, font in char_to_font.items()]
+    cached_results = await sticker_service.glyph_repo.get_by_characters_and_fonts(char_font_pairs)
 
-        font = random.choice(fonts)
+    # Step 3: Group missing characters by font for batch rendering
+    chars_by_font: dict[int, list[str]] = {}
+    for char, font in char_to_font.items():
+        key = (char, font.id)
+        if key not in cached_results:
+            if font.id not in chars_by_font:
+                chars_by_font[font.id] = []
+            chars_by_font[font.id].append(char)
+
+    # Step 4: Render and create stickers for missing characters (serial via queue)
+    new_emoji_ids: dict[tuple[str, int], str] = {}
+
+    for font_id, chars in chars_by_font.items():
+        font = next(f for f in fonts if f.id == font_id)
         font_path = font.get_absolute_path()
 
         if not font_path.exists():
-            results.append((char, None))
             continue
 
-        try:
-            result_text, result_entities = await sticker_service.process_text_with_layout(
-                user_id=user_id,
-                text=char,
-                font_id=font.id,
-                font_path=font_path,
-                bot_username=bot_username,
-            )
+        # Batch render all characters for this font
+        images = await sticker_service.renderer.render_batch(chars, font_path)
 
-            if result_entities:
-                results.append((result_text, result_entities[0]))
-            else:
-                results.append((char, None))
-        except Exception:
-            results.append((char, None))
+        # Submit tasks to queue and wait for results (serial processing)
+        for char, image in zip(chars, images, strict=False):
+            try:
+                task = StickerCreationTask(
+                    user_id=user_id,
+                    character=char,
+                    font_id=font_id,
+                    font_path=font_path,
+                    image_bytes=image,
+                    bot_username=bot_username,
+                )
+                emoji_id = await sticker_service._task_queue.submit(task)
+                new_emoji_ids[(char, font_id)] = emoji_id
+            except Exception:
+                logger.exception(f"Failed to create sticker for '{char}'")
+                # Continue with other characters
 
-    # Combine results
+    # Step 5: Merge cached and new results
+    all_emoji_ids = {**cached_results, **new_emoji_ids}
+
+    # Step 6: Build final text with entity mapping (including whitespace as emoji)
     final_text = ""
-    final_entities = []
+    final_entities: list[MessageEntity] = []
     current_offset = 0
 
-    for text_part, entity in results:
-        final_text += text_part
+    for char in text:
+        font = char_to_font.get(char)
+        if not font:
+            final_text += char
+            current_offset += len(char.encode("utf-16-le")) // 2
+            continue
 
-        if entity:
-            from aiogram.types import MessageEntity
+        emoji_id = all_emoji_ids.get((char, font.id))
+        if not emoji_id:
+            final_text += char
+            current_offset += len(char.encode("utf-16-le")) // 2
+            continue
 
-            adjusted_entity = MessageEntity(
-                type=entity.type,
+        # Use placeholder emoji
+        placeholder = "🎨"
+        final_text += placeholder
+        placeholder_len = len(placeholder.encode("utf-16-le")) // 2
+
+        final_entities.append(
+            MessageEntity(
+                type="custom_emoji",
                 offset=current_offset,
-                length=entity.length,
-                custom_emoji_id=entity.custom_emoji_id,
+                length=placeholder_len,
+                custom_emoji_id=emoji_id,
             )
-            final_entities.append(adjusted_entity)
-
-        current_offset += len(text_part.encode("utf-16-le")) // 2
+        )
+        current_offset += placeholder_len
 
     return final_text, final_entities
 
@@ -221,7 +268,7 @@ async def handle_chosen_inline_result(
     if not cached_data:
         await bot.edit_message_text(
             inline_message_id=inline_message_id,
-            text="<b>Cache expired</b>",
+            text="<b>缓存已过期</b>\n\n请重新发送",
             parse_mode="HTML",
         )
         return
@@ -231,6 +278,15 @@ async def handle_chosen_inline_result(
     # Check if this is zero-width non-joiner prefix version
     is_zwsp_prefix = "zwsp_" in result_id
     text_to_process = query_text[1:] if is_zwsp_prefix and query_text.startswith("\u200c") else query_text
+
+    # Check text length limit
+    if len(text_to_process) > MAX_TEXT_LENGTH:
+        await bot.edit_message_text(
+            inline_message_id=inline_message_id,
+            text=f"<b>文字过长</b>\n\n最多支持 {MAX_TEXT_LENGTH} 个字符\n当前: {len(text_to_process)} 个字符",
+            parse_mode="HTML",
+        )
+        return
 
     try:
         # Get bot username
@@ -244,7 +300,7 @@ async def handle_chosen_inline_result(
         if not fonts:
             await bot.edit_message_text(
                 inline_message_id=inline_message_id,
-                text="<b>No fonts available</b>",
+                text="<b>暂无可用字体</b>\n\n请联系管理员添加字体文件",
                 parse_mode="HTML",
             )
             return
@@ -287,7 +343,7 @@ async def handle_chosen_inline_result(
             if not font_path.exists():
                 await bot.edit_message_text(
                     inline_message_id=inline_message_id,
-                    text="<b>Font file not found</b>",
+                    text="<b>字体文件不存在</b>\n\n请联系管理员修复",
                     parse_mode="HTML",
                 )
                 return
@@ -319,6 +375,6 @@ async def handle_chosen_inline_result(
         logger.exception("Error processing inline result")
         await bot.edit_message_text(
             inline_message_id=inline_message_id,
-            text="<b>Failed to generate emojis</b>",
+            text="<b>生成失败</b>\n\n请稍后重试",
             parse_mode="HTML",
         )

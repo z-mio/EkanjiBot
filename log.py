@@ -35,6 +35,13 @@ def setup_logging(debug: bool = False) -> None:
     if debug:
         logger.debug("调试模式已启用")
 
+    # Configure SQLAlchemy logging to ERROR only (disable SQL statement logging)
+    logging.getLogger("sqlalchemy").setLevel(logging.ERROR)
+    logging.getLogger("sqlalchemy.engine").setLevel(logging.ERROR)
+    logging.getLogger("sqlalchemy.pool").setLevel(logging.ERROR)
+    logging.getLogger("sqlalchemy.dialects").setLevel(logging.ERROR)
+    logging.getLogger("sqlalchemy.orm").setLevel(logging.ERROR)
+
 
 class InterceptHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
