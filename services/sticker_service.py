@@ -431,6 +431,10 @@ class StickerService:
             if is_unicode_emoji(char):
                 logger.debug(f"Skipping Unicode emoji: {repr(char)}")
                 continue
+            # Skip characters not supported by font (cmap check - very fast)
+            if not self.renderer.supports_character(font_path, char):
+                logger.debug(f"Skipping unsupported character: {repr(char)} (font: {font_path.name})")
+                continue
             if char not in seen:
                 convertible_chars.append(char)
                 seen.add(char)
@@ -455,8 +459,8 @@ class StickerService:
 
         # Create missing characters via serial task queue
         if chars_to_create:
-            # Render all missing characters
-            images = await self.renderer.render_batch(chars_to_create, font_path)
+            # Render all missing characters (support already checked above)
+            images = await self.renderer.render_batch(chars_to_create, font_path, check_support=False)
 
             # Create tasks and wait for results (serial processing)
             for char, image in zip(chars_to_create, images, strict=False):

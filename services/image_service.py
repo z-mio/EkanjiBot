@@ -15,6 +15,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models.font import Font
 from db.repositories.font_repo import FontRepository
+from utils.font_support import supports_character
+
+
+class FontNotSupportedError(Exception):
+    """Raised when a font cannot render a character."""
+
+    def __init__(self, font_path: Path, character: str):
+        self.font_path = font_path
+        self.character = character
+        super().__init__(f"Font {font_path.name} does not support character '{character}'")
 
 
 class ImageRenderer:
@@ -53,6 +63,18 @@ class ImageRenderer:
             self._font_cache[cache_key] = ImageFont.truetype(str(font_path), self.FONT_SIZE)
         return self._font_cache[cache_key]
 
+    def supports_character(self, font_path: Path, character: str) -> bool:
+        """Check if font supports a character.
+
+        Args:
+            font_path: Path to font file.
+            character: Character to check.
+
+        Returns:
+            True if font supports the character.
+        """
+        return supports_character(font_path, character, verify_render=False)
+
     def _render_sync(self, character: str, font: ImageFont.FreeTypeFont) -> bytes:
         """Synchronous character rendering executed in thread pool.
 
@@ -81,31 +103,43 @@ class ImageRenderer:
         img.save(buffer, format="WEBP", quality=85, method=4)
         return buffer.getvalue()
 
-    async def render_character(self, character: str, font_path: Path) -> bytes:
+    async def render_character(self, character: str, font_path: Path, check_support: bool = True) -> bytes:
         """Render single character to WebP image asynchronously.
 
         Args:
             character: Single character to render.
             font_path: Path to TrueType font file.
+            check_support: If True, verify font supports the character first.
 
         Returns:
             WebP image data as bytes.
+
+        Raises:
+            FontNotSupportedError: If font doesn't support the character.
         """
+        # Check character support before rendering
+        if check_support and not self.supports_character(font_path, character):
+            raise FontNotSupportedError(font_path, character)
+
         font = self._get_font(font_path)
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(self._executor, self._render_sync, character, font)
 
-    async def render_batch(self, characters: list[str], font_path: Path) -> list[bytes]:
+    async def render_batch(self, characters: list[str], font_path: Path, check_support: bool = True) -> list[bytes]:
         """Render multiple characters concurrently.
 
         Args:
             characters: List of characters to render.
             font_path: Path to TrueType font file.
+            check_support: If True, verify font supports each character first.
 
         Returns:
             List of WebP image data in same order as input characters.
+
+        Raises:
+            FontNotSupportedError: If check_support=True and font doesn't support a character.
         """
-        tasks = [self.render_character(char, font_path) for char in characters]
+        tasks = [self.render_character(char, font_path, check_support=check_support) for char in characters]
         return await asyncio.gather(*tasks)
 
 
@@ -148,3 +182,48 @@ class FontService:
             if font.id == font_id:
                 return font.get_absolute_path()
         return None
+
+    async def find_fonts_for_character(self, character: str) -> list[Font]:
+        """Find fonts that support a specific character.
+
+        Args:
+            character: Character to check support for.
+
+        Returns:
+            List of fonts that can render the character.
+        """
+        fonts = await self.repo.get_active_fonts()
+        supported = []
+
+        for font in fonts:
+            font_path = font.get_absolute_path()
+            if self.renderer.supports_character(font_path, character):
+                supported.append(font)
+
+        return supported
+
+    async def get_best_font_for_character(self, character: str, preferred_font_id: int | None = None) -> Font | None:
+        """Get the best font for rendering a character.
+
+        Priority:
+        1. Preferred font if it supports the character
+        2. First available font that supports the character
+
+        Args:
+            character: Character to render.
+            preferred_font_id: User's preferred font ID.
+
+        Returns:
+            Font that supports the character, or None if no font supports it.
+        """
+        # Try preferred font first
+        if preferred_font_id:
+            preferred_font = await self.repo.get_by_id(preferred_font_id)
+            if preferred_font and preferred_font.is_active:
+                font_path = preferred_font.get_absolute_path()
+                if self.renderer.supports_character(font_path, character):
+                    return preferred_font
+
+        # Fall back to any supporting font
+        supported_fonts = await self.find_fonts_for_character(character)
+        return supported_fonts[0] if supported_fonts else None
