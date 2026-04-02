@@ -1,6 +1,7 @@
 """Commands package."""
 
 from handlers.commands.font import router as font_router
+from handlers.commands.random_font import router as random_font_router
 from handlers.commands.start import router as start_router
 
-__all__ = ["start_router", "font_router"]
+__all__ = ["start_router", "font_router", "random_font_router"]

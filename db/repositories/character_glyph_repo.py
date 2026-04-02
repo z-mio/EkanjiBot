@@ -14,9 +14,16 @@ class CharacterGlyphRepository(BaseRepository[CharacterGlyph]):
         super().__init__(session, CharacterGlyph)
 
     async def get_by_character_and_font(self, character: str, font_id: int) -> CharacterGlyph | None:
-        """Get glyph for specific character and font."""
+        """Get glyph for specific character and font.
+
+        Returns the first match if multiple exist (handles potential duplicates
+        from race conditions before unique constraint was added).
+        """
         result = await self.session.execute(
-            select(CharacterGlyph).where(and_(CharacterGlyph.character == character, CharacterGlyph.font_id == font_id))
+            select(CharacterGlyph)
+            .where(and_(CharacterGlyph.character == character, CharacterGlyph.font_id == font_id))
+            .order_by(CharacterGlyph.id.asc())  # Get oldest/first one
+            .limit(1)
         )
         return result.scalar_one_or_none()
 
@@ -31,3 +38,41 @@ class CharacterGlyphRepository(BaseRepository[CharacterGlyph]):
             select(CharacterGlyph).where(CharacterGlyph.font_id == font_id).offset(skip).limit(limit)
         )
         return list(result.scalars().all())
+
+    async def create_or_get(
+        self,
+        character: str,
+        font_id: int,
+        custom_emoji_id: str,
+        file_id: str,
+        emoji_list: str = "✏️",
+    ) -> CharacterGlyph:
+        """Create new glyph or return existing if duplicate exists.
+
+        Handles race conditions where multiple concurrent requests try to
+        create the same character+font combination.
+
+        Args:
+            character: Single Unicode character.
+            font_id: Font ID.
+            custom_emoji_id: Telegram custom emoji ID.
+            file_id: Telegram file ID.
+            emoji_list: Associated emoji list.
+
+        Returns:
+            Created or existing CharacterGlyph.
+        """
+        # First check if already exists (handles duplicate race condition)
+        existing = await self.get_by_character_and_font(character, font_id)
+        if existing:
+            return existing
+
+        # Create new glyph
+        glyph = CharacterGlyph(
+            character=character,
+            font_id=font_id,
+            custom_emoji_id=custom_emoji_id,
+            file_id=file_id,
+            emoji_list=emoji_list,
+        )
+        return await self.create(glyph)

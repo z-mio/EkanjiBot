@@ -15,7 +15,6 @@ from aiogram.types import BufferedInputFile, InputSticker, MessageEntity
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models.character_glyph import CharacterGlyph
 from db.repositories.character_glyph_repo import CharacterGlyphRepository
 from db.repositories.sticker_set_repo import StickerSetRepository
 from services.image_service import ImageRenderer
@@ -42,8 +41,9 @@ class StickerService:
     MAX_CONCURRENT_UPLOADS = 5
     CONVERTIBLE_PATTERN = re.compile(r"\S")
 
-    # Class-level lock dictionary to prevent concurrent pack creation per user
+    # Class-level lock dictionaries to prevent concurrent operations per user
     _pack_creation_locks: dict[int, asyncio.Lock] = {}
+    _sticker_addition_locks: dict[int, asyncio.Lock] = {}
 
     def __init__(self, session: AsyncSession, bot: Bot):
         """Initialize sticker service.
@@ -292,6 +292,9 @@ class StickerService:
     ) -> str:
         """Create sticker for character and return custom emoji ID.
 
+        Uses per-user locking to prevent concurrent updates to sticker count
+        which can cause database lock conflicts with SQLite.
+
         Args:
             user_id: Telegram user ID.
             character: Character being converted.
@@ -305,44 +308,52 @@ class StickerService:
         Raises:
             Exception: If sticker creation fails.
         """
-        pack, is_new_pack = await self._get_or_create_pack(user_id, bot_username)
+        # Acquire lock for this user to prevent concurrent sticker additions
+        # This prevents SQLite database locked errors when multiple characters
+        # are being processed concurrently for the same user
+        if user_id not in StickerService._sticker_addition_locks:
+            StickerService._sticker_addition_locks[user_id] = asyncio.Lock()
+        lock = StickerService._sticker_addition_locks[user_id]
 
-        input_sticker = InputSticker(
-            sticker=BufferedInputFile(image_bytes, filename=f"{ord(character):04x}.webp"),
-            emoji_list=["✏️"],
-            format="static",
-        )
+        async with lock:
+            pack, is_new_pack = await self._get_or_create_pack(user_id, bot_username)
 
-        if is_new_pack:
-            await self.bot.create_new_sticker_set(
-                user_id=user_id,
-                name=pack.pack_name,
-                title=f"Custom Emoji Pack #{pack.pack_index}",
-                stickers=[input_sticker],
-                sticker_type="custom_emoji",
-                needs_repainting=True,
+            input_sticker = InputSticker(
+                sticker=BufferedInputFile(image_bytes, filename=f"{ord(character):04x}.webp"),
+                emoji_list=["✏️"],
+                format="static",
             )
-            pack.sticker_count = 1
-            await self.session.flush()
-        else:
-            success = await self.bot.add_sticker_to_set(user_id=user_id, name=pack.pack_name, sticker=input_sticker)
-            if not success:
-                raise Exception(f"Failed to add sticker for character: {character}")
-            await self.pack_repo.increment_sticker_count(pack.id)
 
-        sticker_set = await self.bot.get_sticker_set(name=pack.pack_name)
-        new_sticker = sticker_set.stickers[-1]
+            if is_new_pack:
+                await self.bot.create_new_sticker_set(
+                    user_id=user_id,
+                    name=pack.pack_name,
+                    title=f"Custom Emoji Pack #{pack.pack_index}",
+                    stickers=[input_sticker],
+                    sticker_type="custom_emoji",
+                    needs_repainting=True,
+                )
+                pack.sticker_count = 1
+                await self.session.flush()
+            else:
+                success = await self.bot.add_sticker_to_set(user_id=user_id, name=pack.pack_name, sticker=input_sticker)
+                if not success:
+                    raise Exception(f"Failed to add sticker for character: {character}")
+                await self.pack_repo.increment_sticker_count(pack.id)
 
-        glyph_entry = CharacterGlyph(
-            character=character,
-            font_id=font_id,
-            custom_emoji_id=new_sticker.custom_emoji_id,
-            file_id=new_sticker.file_id,
-            emoji_list="✏️",
-        )
-        await self.glyph_repo.create(glyph_entry)
+            sticker_set = await self.bot.get_sticker_set(name=pack.pack_name)
+            new_sticker = sticker_set.stickers[-1]
 
-        return new_sticker.custom_emoji_id
+            # Use create_or_get to handle race conditions
+            await self.glyph_repo.create_or_get(
+                character=character,
+                font_id=font_id,
+                custom_emoji_id=new_sticker.custom_emoji_id,
+                file_id=new_sticker.file_id,
+                emoji_list="✏️",
+            )
+
+            return new_sticker.custom_emoji_id
 
     async def _get_or_create_pack(self, user_id: int, bot_username: str) -> tuple:
         """Get available pack or create new one.

@@ -32,3 +32,21 @@ class UserRepository(BaseRepository[User]):
         # Create new user
         new_user = User(telegram_id=telegram_id, username=username, full_name=full_name, language=language)
         return await self.create(new_user)
+
+    async def update_preferred_font(self, user_id: int, font_id: int | None) -> User | None:
+        """Update user's preferred font.
+
+        Args:
+            user_id: Database ID of the user.
+            font_id: Font ID to set as preferred, or None to clear.
+
+        Returns:
+            Updated User instance, or None if user not found.
+        """
+        user = await self.get_by_id(user_id)
+        if not user:
+            return None
+
+        user.preferred_font_id = font_id
+        await self.session.flush()
+        return user

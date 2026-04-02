@@ -9,11 +9,15 @@ from sqlmodel import SQLModel
 
 from core.config import bs
 
-# Create async engine
+# Create async engine with SQLite timeout for concurrent access
+# SQLite has a default 5s timeout which is too short for concurrent writes
 async_engine = create_async_engine(
     bs.database_url,
     echo=bs.debug,
     future=True,
+    connect_args={"timeout": 30.0},  # 30 second timeout for lock waits
+    pool_pre_ping=True,  # Verify connections before using
+    pool_recycle=3600,  # Recycle connections after 1 hour
 )
 
 # Async session factory

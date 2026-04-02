@@ -2,7 +2,7 @@
 
 from aiogram import Dispatcher
 
-from handlers.commands import font_router, start_router
+from handlers.commands import font_router, random_font_router, start_router
 from handlers.inline import inline_router
 from handlers.messages import text_router
 from middlewares.database import DatabaseMiddleware
@@ -25,5 +25,6 @@ def setup_handlers(dp: Dispatcher) -> None:
     # Register routers
     dp.include_router(start_router)
     dp.include_router(font_router)
+    dp.include_router(random_font_router)
     dp.include_router(text_router)
     dp.include_router(inline_router)

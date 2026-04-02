@@ -30,6 +30,11 @@ class CharacterGlyph(SQLModel, table=True):
 
     __tablename__ = "character_glyphs"
 
+    # Unique constraint: one glyph per character per font
+    __table_args__ = (
+        {"sqlite_autoincrement": True},  # Auto-increment primary key
+    )
+
     id: int | None = Field(default=None, primary_key=True)
     character: str = Field(max_length=1, description="Single Unicode character")
     custom_emoji_id: str = Field(max_length=64, description="Telegram custom emoji ID")

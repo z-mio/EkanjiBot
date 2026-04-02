@@ -9,11 +9,49 @@ from aiogram.types import Message
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from db.models.font import Font
 from db.models.user import User
+from db.repositories.font_repo import FontRepository
 from services.image_service import FontService
 from services.sticker_service import StickerService
 
 router = Router()
+
+
+async def get_user_font(
+    db_user: User,
+    fonts: list[Font],
+    font_repo: FontRepository,
+) -> tuple[Font, bool]:
+    """Get the font to use for user.
+
+    Priority:
+    1. User's preferred font if set and available
+    2. First available font (alphabetical default)
+
+    Args:
+        db_user: User model.
+        fonts: List of available fonts.
+        font_repo: Font repository for lookup.
+
+    Returns:
+        Tuple of (font_to_use, is_preferred) where is_preferred indicates
+        if using user's preferred font.
+    """
+    # Check if user has preferred font
+    if db_user.preferred_font_id:
+        # Try to find preferred font in available fonts
+        for font in fonts:
+            if font.id == db_user.preferred_font_id:
+                return font, True
+
+        # Preferred font not in active list, try to get it from DB
+        preferred_font = await font_repo.get_by_id(db_user.preferred_font_id)
+        if preferred_font and preferred_font.is_active:
+            return preferred_font, True
+
+    # Fall back to first font (alphabetical default)
+    return fonts[0], False
 
 
 @router.message(F.text)
@@ -26,7 +64,7 @@ async def handle_text_to_emoji(
     """Convert user text to custom emoji stickers.
 
     Main workflow:
-        1. Get text and available font
+        1. Get text and user's preferred font (or default)
         2. Check cache for existing character glyphs
         3. Render and upload new characters as needed
         4. Return formatted message with custom emojis
@@ -45,7 +83,7 @@ async def handle_text_to_emoji(
     bot_info = await bot.get_me()
     bot_username = bot_info.username or "bot"
 
-    # Get default font
+    # Get available fonts
     font_service = FontService(session)
     fonts = await font_service.get_available_fonts()
 
@@ -53,8 +91,9 @@ async def handle_text_to_emoji(
         await message.answer("<b>No fonts available</b>", parse_mode="HTML")
         return
 
-    # Use first available font as default
-    font = fonts[0]
+    # Get user's preferred font or default
+    font_repo = FontRepository(session)
+    font, is_preferred = await get_user_font(db_user, fonts, font_repo)
     font_path = font.get_absolute_path()
 
     if not font_path.exists():
