@@ -17,6 +17,7 @@ dependencies = [
     "aiogram>=3.26.0",
     "aiohttp-socks>=0.11.0",
     "aiosqlite>=0.21.0",
+    "alembic>=1.13.0",
     "loguru>=0.7.3",
     "pillow>=12.1.1",
     "pydantic>=2.12.3",

@@ -1,0 +1,98 @@
+# Database Migrations
+
+Alembic 迁移管理笔记。
+
+## 常用命令
+
+### 创建迁移
+
+```bash
+# 自动检测模型变更，生成迁移文件
+uv run alembic revision --autogenerate -m "描述变更内容"
+
+# 示例
+uv run alembic revision --autogenerate -m "add user avatar field"
+```
+
+### 应用迁移
+
+```bash
+# 升级到最新版本
+uv run alembic upgrade head
+
+# 升级到指定版本
+uv run alembic upgrade <revision_id>
+
+# 升级 1 个版本
+uv run alembic upgrade +1
+```
+
+### 回滚迁移
+
+```bash
+# 回滚 1 个版本
+uv run alembic downgrade -1
+
+# 回滚到指定版本
+uv run alembic downgrade <revision_id>
+
+# 回滚所有（清空数据库）
+uv run alembic downgrade base
+```
+
+### 查看状态
+
+```bash
+# 当前版本
+uv run alembic current
+
+# 迁移历史
+uv run alembic history
+
+# 详细历史（显示完整信息）
+uv run alembic history --verbose
+```
+
+## 工作流程
+
+### 修改数据库模型
+
+1. 编辑 `db/models/` 中的模型文件
+2. 确保模型在 `db/models/__init__.py` 中导出
+3. 创建迁移：`uv run alembic revision --autogenerate -m "描述"`
+4. 检查生成的迁移文件 `migrations/versions/xxx_描述.py`
+5. 应用迁移：`uv run alembic upgrade head`
+
+### 重置数据库
+
+```bash
+# 删除数据库文件
+rm -rf data/
+
+# 重新应用所有迁移
+uv run alembic upgrade head
+```
+
+## 注意事项
+
+- 迁移文件自动通过 ruff 格式化
+- 迁移环境会自动导入所有 SQLModel 模型
+- 数据库 URL 从 `core.config.bs.database_url` 读取
+- 迁移使用同步 SQLite 驱动（`sqlite://`），运行时使用异步（`sqlite+aiosqlite://`）
+
+## 文件结构
+
+```
+migrations/
+├── env.py              # 迁移环境配置
+├── script.py.mako      # 迁移文件模板
+├── versions/           # 迁���脚本目录
+│   └── *_描述.py       # 各版本迁移文件
+└── README              # 本文件
+```
+
+## 迁移历史
+
+| Revision | 描述 | 日期 |
+|----------|------|------|
+| c6521dae8f94 | initial schema | 2026-04-02 |
