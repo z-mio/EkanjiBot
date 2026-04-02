@@ -1,3 +1,9 @@
+"""Logging configuration using loguru.
+
+This module provides centralized logging configuration for EkanjiBot
+with file rotation, retention, and compression support.
+"""
+
 import inspect
 import logging
 import sys
@@ -17,8 +23,18 @@ logger_format = (
     "<level>{message}</level>"
 )
 
+# Logging configuration constants
+LOG_ROTATION_SIZE = "10 MB"
+LOG_RETENTION = "30 days"
+LOG_COMPRESSION = "zip"
+
 
 def setup_logging(debug: bool = False) -> None:
+    """Configure logging with stderr and file outputs.
+
+    Args:
+        debug: If True, enable DEBUG level logging.
+    """
     logger.remove()
 
     level = "DEBUG" if debug else "INFO"
@@ -26,7 +42,9 @@ def setup_logging(debug: bool = False) -> None:
 
     logger.add(
         "logs/bot.log",
-        rotation="10 MB",
+        rotation=LOG_ROTATION_SIZE,
+        retention=LOG_RETENTION,
+        compression=LOG_COMPRESSION,
         level="INFO",
         format=logger_format,
         enqueue=True,

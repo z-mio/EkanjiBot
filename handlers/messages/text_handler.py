@@ -9,6 +9,8 @@ from aiogram.types import Message
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.constants import MAX_TEXT_LENGTH
+from core.messages import ErrorMessages, InfoMessages
 from db.models.font import Font
 from db.models.user import User
 from db.repositories.font_repo import FontRepository
@@ -16,9 +18,6 @@ from services.image_service import FontService
 from services.sticker_service import StickerService
 
 router = Router()
-
-# Maximum characters allowed per message
-MAX_TEXT_LENGTH = 120
 
 
 async def get_user_font(
@@ -86,7 +85,7 @@ async def handle_text_to_emoji(
     # Check text length limit
     if len(text) > MAX_TEXT_LENGTH:
         await message.reply(
-            f"<b>文字过长</b>\n\n最多支持 <code>{MAX_TEXT_LENGTH}</code> 个字符\n当前: <code>{len(text)}</code> 个字符",
+            ErrorMessages.text_too_long(len(text)),
             parse_mode="HTML",
         )
         return
@@ -100,7 +99,7 @@ async def handle_text_to_emoji(
     fonts = await font_service.get_available_fonts()
 
     if not fonts:
-        await message.answer("<b>暂无可用字体</b>\n\n请联系管理员添加字体文件", parse_mode="HTML")
+        await message.answer(ErrorMessages.NO_FONTS_AVAILABLE, parse_mode="HTML")
         return
 
     # Get user's preferred font or default
@@ -109,11 +108,11 @@ async def handle_text_to_emoji(
     font_path = font.get_absolute_path()
 
     if not font_path.exists():
-        await message.answer("<b>字体文件不存在</b>\n\n请联系管理员修复", parse_mode="HTML")
+        await message.answer(ErrorMessages.FONT_FILE_NOT_FOUND, parse_mode="HTML")
         return
 
     # Show processing hint
-    status_msg = await message.reply("<i>⏳ 生成中...</i>", parse_mode="HTML")
+    status_msg = await message.reply(InfoMessages.PROCESSING, parse_mode="HTML")
 
     # Process text to emojis
     try:
@@ -141,4 +140,4 @@ async def handle_text_to_emoji(
 
     except Exception:
         logger.exception("Error processing text to emoji")
-        await status_msg.edit_text("<b>生成失败</b>\n\n请稍后重试", parse_mode="HTML")
+        await status_msg.edit_text(ErrorMessages.GENERATION_FAILED, parse_mode="HTML")

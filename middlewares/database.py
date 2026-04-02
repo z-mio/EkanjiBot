@@ -18,6 +18,19 @@ class DatabaseMiddleware(BaseMiddleware):
         event: TelegramObject,
         data: dict[str, Any],
     ) -> Any:
+        """Process handler with database session injection.
+
+        Creates a new database session, injects it into handler data,
+        and handles automatic commit/rollback based on handler result.
+
+        Args:
+            handler: The next handler in the middleware chain.
+            event: The Telegram event being processed.
+            data: Context data passed through middleware chain.
+
+        Returns:
+            Result from the handler.
+        """
         async with AsyncSessionLocal() as session:
             data["session"] = session
             try:

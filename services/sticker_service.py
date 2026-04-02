@@ -13,7 +13,6 @@ Architecture:
 
 import asyncio
 import re
-import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -26,6 +25,7 @@ from core.config import bs
 from db.repositories.character_glyph_repo import CharacterGlyphRepository
 from db.repositories.sticker_set_repo import StickerSetRepository
 from services.image_service import ImageRenderer
+from utils.emoji_utils import is_unicode_emoji
 
 
 @dataclass
@@ -421,34 +421,6 @@ class StickerService:
         # Extract unique convertible characters
         convertible_chars = []
         seen = set()
-
-        def is_unicode_emoji(char: str) -> bool:
-            """Check if character is a Unicode emoji.
-
-            Args:
-                char: Single character to check.
-
-            Returns:
-                True if character is a Unicode emoji.
-            """
-            if len(char) == 0:
-                return False
-            # Check Unicode category
-            for c in char:
-                if unicodedata.category(c) == "So":
-                    return True
-            # Check emoji Unicode ranges
-            code = ord(char[0])
-            if (
-                (0x1F600 <= code <= 0x1F64F)  # Emoticons
-                or (0x1F300 <= code <= 0x1F5FF)  # Misc symbols
-                or (0x1F680 <= code <= 0x1F6FF)  # Transport
-                or (0x1F1E0 <= code <= 0x1F1FF)  # Flags
-                or (0x2600 <= code <= 0x26FF)  # Misc
-                or (0x2700 <= code <= 0x27BF)  # Dingbats
-            ):
-                return True
-            return False
 
         for idx, char in enumerate(text):
             if idx in skip_char_indices:

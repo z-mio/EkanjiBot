@@ -9,6 +9,7 @@ from aiogram.filters import Command
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.constants import MAX_TEXT_LENGTH
 from db.models.user import User
 
 router = Router()
@@ -47,7 +48,7 @@ async def cmd_start(message: Message, session: AsyncSession, db_user: User, bot:
         f"   @{bot_username} rf文字 或 @{bot_username} rf 文字\n\n"
         "💡 <b>提示</b>\n"
         "   每个字符只需生成一次，永久缓存\n"
-        "   最多支持 120 个字符"
+        f"   最多支持 {MAX_TEXT_LENGTH} 个字符"
     )
     await message.answer(welcome_text, parse_mode="HTML")
 

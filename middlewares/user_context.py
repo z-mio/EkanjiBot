@@ -25,6 +25,20 @@ class UserContextMiddleware(BaseMiddleware):
         event: TelegramObject,
         data: dict[str, Any],
     ) -> Any:
+        """Process handler with user context injection.
+
+        Extracts user information from Telegram events, registers or
+        retrieves the user from database, and injects db_user into
+        handler context data.
+
+        Args:
+            handler: The next handler in the middleware chain.
+            event: The Telegram event being processed.
+            data: Context data passed through middleware chain.
+
+        Returns:
+            Result from the handler.
+        """
         session: AsyncSession = data.get("session")
         if not session:
             return await handler(event, data)
