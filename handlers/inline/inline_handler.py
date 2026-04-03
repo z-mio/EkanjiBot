@@ -20,11 +20,13 @@ from db.repositories.font_repo import FontRepository
 from services.image_service import FontService
 from services.random_font_service import process_text_with_random_fonts
 from services.sticker_service import StickerService
+from utils.ttl_cache import TTLCache
 
 router = Router()
 
 # Temporary cache to store query text and flags by result_id
-_query_cache: dict[str, tuple[str, bool]] = {}  # (text, is_random_font)
+# Entries expire after 30 seconds to prevent memory leaks from abandoned queries
+_query_cache: TTLCache[str, tuple[str, bool]] = TTLCache(ttl_seconds=30.0, max_size=1000)
 
 
 @router.inline_query()

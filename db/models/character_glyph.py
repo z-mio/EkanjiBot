@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 from sqlmodel import Field, Relationship, SQLModel
 
+from core.constants import CUSTOM_EMOJI_PLACEHOLDER
 from db.models.base import CreatedAtField
 
 if TYPE_CHECKING:
@@ -39,7 +40,7 @@ class CharacterGlyph(SQLModel, table=True):
     character: str = Field(max_length=1, description="Single Unicode character")
     custom_emoji_id: str = Field(max_length=64, description="Telegram custom emoji ID")
     file_id: str = Field(max_length=255, description="Telegram file ID")
-    emoji_list: str = Field(default="✏️", max_length=20, description="Associated emoji list")
+    emoji_list: str = Field(default=CUSTOM_EMOJI_PLACEHOLDER, max_length=20, description="Associated emoji list")
     created_at: datetime = CreatedAtField()
 
     # Foreign key

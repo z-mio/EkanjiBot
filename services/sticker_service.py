@@ -22,6 +22,7 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import bs
+from core.constants import CUSTOM_EMOJI_PLACEHOLDER
 from db.repositories.character_glyph_repo import CharacterGlyphRepository
 from db.repositories.sticker_set_repo import StickerSetRepository
 from services.image_service import ImageRenderer
@@ -181,7 +182,7 @@ class StickerTaskQueue:
         # Upload to Telegram (uses bs.user_id from config)
         input_sticker = InputSticker(
             sticker=BufferedInputFile(task.image_bytes, filename=f"{ord(task.character):04x}.webp"),
-            emoji_list=["✏️"],
+            emoji_list=[CUSTOM_EMOJI_PLACEHOLDER],
             format="static",
         )
 
@@ -240,7 +241,7 @@ class StickerTaskQueue:
             font_id=task.font_id,
             custom_emoji_id=new_sticker.custom_emoji_id,
             file_id=new_sticker.file_id,
-            emoji_list="✏️",
+            emoji_list=CUSTOM_EMOJI_PLACEHOLDER,
         )
 
         await session.commit()

@@ -15,10 +15,6 @@ from services.image_service import FontService
 
 router = Router()
 
-# Cache font list for mapping display index to font ID
-# Key: user_id, Value: list of font IDs in display order
-_font_index_cache: dict[int, list[int]] = {}
-
 
 @router.message(Command("sf"))
 async def cmd_set_font(message: Message, session: AsyncSession, db_user: User) -> None:
@@ -40,10 +36,6 @@ async def cmd_set_font(message: Message, session: AsyncSession, db_user: User) -
     if not fonts:
         await message.answer("<b>暂无可用字体</b>\n\n请联系管理员添加字体文件", parse_mode="HTML")
         return
-
-    # Cache font IDs for this user
-    user_id = db_user.id
-    _font_index_cache[user_id] = [font.id for font in fonts]
 
     # No argument: show font list
     if len(command_parts) < 2:
