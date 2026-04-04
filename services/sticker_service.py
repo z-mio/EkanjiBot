@@ -1,11 +1,11 @@
 """Sticker management service.
 
 This module provides sticker pack management and text-to-emoji conversion
-for Telegram Custom Emoji stickers. Uses a global serial task queue for
-sticker creation to ensure correctness and simplify caching.
+for Telegram Custom Emoji stickers. Uses a global concurrent task queue for
+sticker creation to maximize throughput while maintaining correctness.
 
 Architecture:
-- Global serial queue: Only one sticker creation at a time
+- Global concurrent queue: 5 workers process tasks in parallel
 - Task-based: Each character creation is a task
 - Automatic caching: Database stores character → emoji mapping
 - User packs: Each user has their own sticker packs
@@ -248,44 +248,32 @@ class StickerTaskQueue:
         return new_sticker.custom_emoji_id
 
     async def _get_or_create_pack(self, bot_username: str, pack_repo, session):
-        """Get available global pack or create new one.
-
-        Uses bs.user_id from config for sticker pack ownership.
-
-        Args:
-            bot_username: Bot username.
-            pack_repo: StickerSetRepository.
-            session: Database session.
-
-        Returns:
-            Tuple of (StickerSet, is_new_pack).
-        """
         from db.models.sticker_set import StickerSet
 
-        # Get any available global pack
         pack = await pack_repo.get_available_pack()
         if pack:
             return pack, False
 
-        # Create new pack with user_id from config
-        pack_index = await pack_repo.get_next_pack_index()
-        pack_name = f"p{pack_index}_by_{bot_username}"
+        async with self._pack_lock:
+            pack = await pack_repo.get_available_pack()
+            if pack:
+                return pack, False
 
-        # Handle orphaned Telegram packs
-        pack_name = await self._handle_orphaned_packs(bot_username, pack_name, pack_index)
+            pack_index = await pack_repo.get_next_pack_index()
+            pack_name = f"p{pack_index}_by_{bot_username}"
+            pack_name = await self._handle_orphaned_packs(bot_username, pack_name, pack_index)
 
-        # Create in database
-        pack = StickerSet(
-            created_by=bs.user_id,
-            pack_name=pack_name,
-            pack_index=pack_index,
-            max_stickers=120,
-            sticker_count=0,
-        )
-        pack = await pack_repo.create(pack)
-        await session.flush()
+            pack = StickerSet(
+                created_by=bs.user_id,
+                pack_name=pack_name,
+                pack_index=pack_index,
+                max_stickers=120,
+                sticker_count=0,
+            )
+            pack = await pack_repo.create(pack)
+            await session.commit()
 
-        return pack, True
+            return pack, True
 
     async def _handle_orphaned_packs(self, bot_username: str, pack_name: str, pack_index: int) -> str:
         """Handle orphaned Telegram packs from database resets.

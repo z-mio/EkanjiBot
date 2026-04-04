@@ -25,40 +25,17 @@ async def process_text_with_random_fonts(
     fonts: list[Font],
     bot_username: str,
 ) -> tuple[str, list[MessageEntity]]:
-    """Process text with random font per character using serial task queue.
-
-    Each character position gets a randomly assigned font from the available
-    fonts that support that character. This creates visual variety where the
-    same character at different positions can have different fonts.
-
-    Args:
-        session: Database session for repository operations.
-        user_id: Telegram user ID (for logging purposes).
-        text: Input text to convert.
-        fonts: List of available fonts to randomize from.
-        bot_username: Bot username for sticker pack naming.
-
-    Returns:
-        Tuple of (result_text, result_entities) where result_text uses
-        placeholder characters and result_entities maps them to custom emojis.
-
-    Note:
-        Uses global StickerTaskQueue for serial sticker creation.
-        All fonts should be active and have valid paths.
-    """
     if not fonts:
         return text, []
 
     if len(fonts) < 2:
-        # Single font - use normal processing
         font = fonts[0]
         font_path = font.get_absolute_path()
         if not font_path.exists():
             return text, []
-        # Import here to avoid circular dependency
         from services.sticker_service import StickerService
 
-        sticker_service = StickerService(session, None)  # type: ignore
+        sticker_service = StickerService(session, None)
         return await sticker_service.process_text_with_layout(
             user_id=user_id,
             text=text,
