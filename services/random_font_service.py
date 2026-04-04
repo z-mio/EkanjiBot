@@ -71,7 +71,6 @@ async def process_text_with_random_fonts(
     renderer = ImageRenderer()
     task_queue = StickerTaskQueue.get_instance()
 
-    # Step 1: Extract unique characters to process (skip newlines, Unicode emoji)
     chars_to_process = []
     seen = set()
 
@@ -85,7 +84,6 @@ async def process_text_with_random_fonts(
     if not chars_to_process:
         return text, []
 
-    # Step 2: Batch check cache for all character+font combinations (cache first)
     all_char_font_pairs = []
     for char in chars_to_process:
         for font in fonts:
@@ -93,7 +91,6 @@ async def process_text_with_random_fonts(
     unique_pairs = list(set(all_char_font_pairs))
     cached_results = await glyph_repo.get_by_characters_and_fonts(unique_pairs)
 
-    # Step 3: Assign font to each position (random, cache-first)
     position_to_font: dict[int, Font] = {}
     position_to_emoji_id: dict[int, str] = {}
 
@@ -124,7 +121,6 @@ async def process_text_with_random_fonts(
             # No font supports this character - will be preserved as-is
             logger.debug(f"No font supports character: {repr(char)} at position {idx}")
 
-    # Step 4: Group missing characters by font for batch rendering
     chars_by_font: dict[int, set[str]] = {}
     for idx, font in position_to_font.items():
         if idx in position_to_emoji_id:
@@ -134,10 +130,8 @@ async def process_text_with_random_fonts(
             chars_by_font[font.id] = set()
         chars_by_font[font.id].add(char)
 
-    # Convert sets to lists for rendering
     chars_by_font_lists: dict[int, list[str]] = {font_id: list(chars) for font_id, chars in chars_by_font.items()}
 
-    # Step 5: Render and create stickers for missing characters (serial via queue)
     new_emoji_ids: dict[tuple[str, int], str] = {}
 
     for font_id, chars in chars_by_font_lists.items():
@@ -147,29 +141,29 @@ async def process_text_with_random_fonts(
         if not font_path.exists():
             continue
 
-        # Batch render all characters for this font
         images = await renderer.render_batch(chars, font_path, check_support=False)
 
-        # Submit tasks to queue and wait for results (serial processing)
+        tasks = []
         for char, image in zip(chars, images, strict=False):
-            try:
-                task = StickerCreationTask(
-                    character=char,
-                    font_id=font_id,
-                    font_path=font_path,
-                    image_bytes=image,
-                    bot_username=bot_username,
-                )
-                emoji_id = await task_queue.submit(task)
-                new_emoji_ids[(char, font_id)] = emoji_id
-            except Exception:
-                logger.exception(f"Failed to create sticker for '{char}'")
-                # Continue with other characters
+            task = StickerCreationTask(
+                character=char,
+                font_id=font_id,
+                font_path=font_path,
+                image_bytes=image,
+                bot_username=bot_username,
+            )
+            await task_queue.put(task)
+            tasks.append(task)
 
-    # Step 6: Merge cached and new results
+        for task in tasks:
+            await task.result_event.wait()
+            if task.error:
+                logger.exception(f"Failed to create sticker for '{task.character}'")
+                continue
+            new_emoji_ids[(task.character, font_id)] = task.result
+
     all_emoji_ids = {**cached_results, **new_emoji_ids}
 
-    # Step 7: Build final text with entity mapping (each position gets its own font)
     final_text = ""
     final_entities: list[MessageEntity] = []
     current_offset = 0
