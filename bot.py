@@ -41,6 +41,7 @@ def get_system_font_path() -> Path | None:
         if font_path.exists():
             return font_path
 
+
     return None
 
 
