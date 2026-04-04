@@ -1,11 +1,11 @@
 """Sticker management service.
 
 This module provides sticker pack management and text-to-emoji conversion
-for Telegram Custom Emoji stickers. Uses a global serial task queue for
-sticker creation to ensure correctness and simplify caching.
+for Telegram Custom Emoji stickers. Uses a global concurrent task queue for
+sticker creation to maximize throughput while maintaining correctness.
 
 Architecture:
-- Global serial queue: Only one sticker creation at a time
+- Global concurrent queue: 5 workers process tasks in parallel
 - Task-based: Each character creation is a task
 - Automatic caching: Database stores character → emoji mapping
 - User packs: Each user has their own sticker packs
@@ -58,23 +58,23 @@ class StickerCreationTask:
 
 
 class StickerTaskQueue:
-    """Global serial task queue for sticker creation.
+    """Global concurrent task queue for sticker creation.
 
-    Ensures only one sticker is created at a time, preventing race conditions
-    and simplifying the caching logic. Tasks are processed FIFO.
-
-    The queue worker runs in the background and processes tasks one by one.
-    Each task's result is communicated back via asyncio.Event.
+    Processes tasks concurrently with configurable worker count (default 5).
+    Each worker pulls tasks from the queue and processes them independently.
+    Results are communicated back via asyncio.Event on each task.
     """
 
     _instance: "StickerTaskQueue | None" = None
+    MAX_WORKERS = 5
 
     def __init__(self):
         self._queue: asyncio.Queue[StickerCreationTask] = asyncio.Queue()
-        self._worker_task: asyncio.Task | None = None
+        self._worker_tasks: list[asyncio.Task] = []
         self._bot: Bot | None = None
         self._session_factory = None
         self._started = False
+        self._pack_lock = asyncio.Lock()
 
     @classmethod
     def get_instance(cls) -> "StickerTaskQueue":
@@ -84,7 +84,7 @@ class StickerTaskQueue:
         return cls._instance
 
     def start(self, bot: Bot, session_factory):
-        """Start the background worker.
+        """Start the background workers.
 
         Args:
             bot: Aiogram Bot instance.
@@ -95,21 +95,31 @@ class StickerTaskQueue:
 
         self._bot = bot
         self._session_factory = session_factory
-        self._worker_task = asyncio.create_task(self._worker())
+        for i in range(self.MAX_WORKERS):
+            worker_task = asyncio.create_task(self._worker(worker_id=i))
+            self._worker_tasks.append(worker_task)
         self._started = True
-        logger.info("StickerTaskQueue started")
+        logger.info(f"StickerTaskQueue started with {self.MAX_WORKERS} workers")
 
     async def stop(self):
-        """Stop the background worker."""
-        if self._worker_task:
-            self._worker_task.cancel()
-            try:
-                await self._worker_task
-            except asyncio.CancelledError:
-                pass
-            self._worker_task = None
+        """Stop all background workers."""
+        for task in self._worker_tasks:
+            task.cancel()
+        results = await asyncio.gather(*self._worker_tasks, return_exceptions=True)
+        for result in results:
+            if not isinstance(result, asyncio.CancelledError):
+                logger.warning(f"Worker returned unexpected result: {result}")
+        self._worker_tasks.clear()
         self._started = False
         logger.info("StickerTaskQueue stopped")
+
+    async def put(self, task: StickerCreationTask):
+        """Add task to queue without waiting for result.
+
+        Args:
+            task: Sticker creation task.
+        """
+        await self._queue.put(task)
 
     async def submit(self, task: StickerCreationTask) -> str:
         """Submit a task and wait for result.
@@ -131,93 +141,52 @@ class StickerTaskQueue:
 
         return task.result
 
-    async def _worker(self):
-        """Background worker that processes tasks serially."""
+    async def _worker(self, worker_id: int):
+        """Background worker that processes tasks from the queue."""
         while True:
             try:
                 task = await self._queue.get()
-                logger.debug(f"Processing sticker task: '{task.character}' (font={task.font_id})")
+                logger.debug(f"Worker-{worker_id} processing: '{task.character}' (font={task.font_id})")
 
                 try:
                     async with self._session_factory() as session:
                         emoji_id = await self._process_task(task, session)
                         task.result = emoji_id
                 except Exception as e:
-                    logger.exception(f"Task failed for '{task.character}'")
+                    logger.exception(f"Worker-{worker_id} task failed for '{task.character}'")
                     task.error = e
                 finally:
                     task.result_event.set()
 
             except asyncio.CancelledError:
-                logger.info("Worker cancelled")
+                logger.info(f"Worker-{worker_id} cancelled")
                 break
             except Exception:
-                logger.exception("Worker error")
-                # Continue processing other tasks
+                logger.exception(f"Worker-{worker_id} error")
 
     async def _process_task(self, task: StickerCreationTask, session: AsyncSession) -> str:
-        """Process a single sticker creation task.
-
-        Args:
-            task: Sticker creation task.
-            session: Database session.
-
-        Returns:
-            Custom emoji ID.
-        """
-        from aiogram.exceptions import TelegramBadRequest
+        from aiogram.exceptions import TelegramBadRequest, TelegramNetworkError
 
         glyph_repo = CharacterGlyphRepository(session)
         pack_repo = StickerSetRepository(session)
 
-        # Check cache first (may have been created while waiting in queue)
         existing = await glyph_repo.get_by_character_and_font(task.character, task.font_id)
         if existing:
             logger.debug(f"Cache hit for '{task.character}' (font={task.font_id})")
             return existing.custom_emoji_id
 
-        # Get or create pack (uses bs.user_id from config)
         pack, is_new_pack = await self._get_or_create_pack(task.bot_username, pack_repo, session)
 
-        # Upload to Telegram (uses bs.user_id from config)
         input_sticker = InputSticker(
             sticker=BufferedInputFile(task.image_bytes, filename=f"{ord(task.character):04x}.webp"),
             emoji_list=[CUSTOM_EMOJI_PLACEHOLDER],
             format="static",
         )
 
-        if is_new_pack:
-            await self._bot.create_new_sticker_set(
-                user_id=bs.user_id,
-                name=pack.pack_name,
-                title=f"Ekanji #{pack.pack_index}",
-                stickers=[input_sticker],
-                sticker_type="custom_emoji",
-                needs_repainting=True,
-            )
-            pack.sticker_count = 1
-            await session.flush()
-        else:
+        max_retries = 3
+        for attempt in range(max_retries):
             try:
-                success = await self._bot.add_sticker_to_set(
-                    user_id=bs.user_id, name=pack.pack_name, sticker=input_sticker
-                )
-                if not success:
-                    raise Exception(f"Failed to add sticker for character: {task.character}")
-
-                # Increment count on success
-                await pack_repo.increment_sticker_count(pack.id)
-            except TelegramBadRequest as e:
-                # Handle invalid sticker set - mark as inactive and create new pack
-                if "STICKERSET_INVALID" in str(e) or "STICKERSET_NOT_FOUND" in str(e):
-                    logger.warning(f"Sticker set {pack.pack_name} is invalid, creating new pack")
-                    pack.is_active = False
-                    await session.flush()
-
-                    # Create new pack
-                    pack, _ = await self._get_or_create_pack(task.bot_username, pack_repo, session)
-
-                    # Create new sticker set
+                if is_new_pack:
                     await self._bot.create_new_sticker_set(
                         user_id=bs.user_id,
                         name=pack.pack_name,
@@ -229,13 +198,42 @@ class StickerTaskQueue:
                     pack.sticker_count = 1
                     await session.flush()
                 else:
-                    raise
+                    success = await self._bot.add_sticker_to_set(
+                        user_id=bs.user_id, name=pack.pack_name, sticker=input_sticker
+                    )
+                    if not success:
+                        raise Exception(f"Failed to add sticker for character: {task.character}")
+                    await pack_repo.increment_sticker_count(pack.id)
+                break
+            except TelegramNetworkError as e:
+                if attempt < max_retries - 1:
+                    wait = 2**attempt
+                    logger.warning(f"Network error, retrying in {wait}s ({attempt + 1}/{max_retries}): {e}")
+                    await asyncio.sleep(wait)
+                    continue
+                raise
+            except TelegramBadRequest as e:
+                error_str = str(e)
+                if "STICKERSET_INVALID" in error_str or "STICKERSET_NOT_FOUND" in error_str:
+                    async with self._pack_lock:
+                        async with self._session_factory() as fresh_session:
+                            fresh_pack = await StickerSetRepository(fresh_session).get_by_pack_name(pack.pack_name)
+                            if fresh_pack and fresh_pack.is_active:
+                                fresh_pack.is_active = False
+                                await fresh_session.commit()
+                                logger.warning(f"Sticker set {pack.pack_name} marked invalid")
+                    pack, is_new_pack = await self._get_or_create_pack(task.bot_username, pack_repo, session)
+                    continue
+                elif "Too Many Requests" in error_str and attempt < max_retries - 1:
+                    retry_after = getattr(e, "retry_after", 1) or 1
+                    logger.warning(f"Rate limited, waiting {retry_after}s before retry {attempt + 1}/{max_retries}")
+                    await asyncio.sleep(retry_after)
+                    continue
+                raise
 
-        # Get the newly added sticker
         sticker_set = await self._bot.get_sticker_set(name=pack.pack_name)
         new_sticker = sticker_set.stickers[-1]
 
-        # Save to cache
         await glyph_repo.create_or_get(
             character=task.character,
             font_id=task.font_id,
@@ -250,44 +248,32 @@ class StickerTaskQueue:
         return new_sticker.custom_emoji_id
 
     async def _get_or_create_pack(self, bot_username: str, pack_repo, session):
-        """Get available global pack or create new one.
-
-        Uses bs.user_id from config for sticker pack ownership.
-
-        Args:
-            bot_username: Bot username.
-            pack_repo: StickerSetRepository.
-            session: Database session.
-
-        Returns:
-            Tuple of (StickerSet, is_new_pack).
-        """
         from db.models.sticker_set import StickerSet
 
-        # Get any available global pack
         pack = await pack_repo.get_available_pack()
         if pack:
             return pack, False
 
-        # Create new pack with user_id from config
-        pack_index = await pack_repo.get_next_pack_index()
-        pack_name = f"p{pack_index}_by_{bot_username}"
+        async with self._pack_lock:
+            pack = await pack_repo.get_available_pack()
+            if pack:
+                return pack, False
 
-        # Handle orphaned Telegram packs
-        pack_name = await self._handle_orphaned_packs(bot_username, pack_name, pack_index)
+            pack_index = await pack_repo.get_next_pack_index()
+            pack_name = f"p{pack_index}_by_{bot_username}"
+            pack_name = await self._handle_orphaned_packs(bot_username, pack_name, pack_index)
 
-        # Create in database
-        pack = StickerSet(
-            created_by=bs.user_id,
-            pack_name=pack_name,
-            pack_index=pack_index,
-            max_stickers=120,
-            sticker_count=0,
-        )
-        pack = await pack_repo.create(pack)
-        await session.flush()
+            pack = StickerSet(
+                created_by=bs.user_id,
+                pack_name=pack_name,
+                pack_index=pack_index,
+                max_stickers=120,
+                sticker_count=0,
+            )
+            pack = await pack_repo.create(pack)
+            await session.commit()
 
-        return pack, True
+            return pack, True
 
     async def _handle_orphaned_packs(self, bot_username: str, pack_name: str, pack_index: int) -> str:
         """Handle orphaned Telegram packs from database resets.
@@ -464,12 +450,10 @@ class StickerService:
                 continue
             chars_to_create.append(char)
 
-        # Create missing characters via serial task queue
         if chars_to_create:
-            # Render all missing characters (support already checked above)
             images = await self.renderer.render_batch(chars_to_create, font_path, check_support=False)
 
-            # Create tasks and wait for results (serial processing)
+            tasks = []
             for char, image in zip(chars_to_create, images, strict=False):
                 task = StickerCreationTask(
                     character=char,
@@ -478,10 +462,14 @@ class StickerService:
                     image_bytes=image,
                     bot_username=bot_username,
                 )
+                await self._task_queue.put(task)
+                tasks.append(task)
 
-                # Submit to queue and wait
-                emoji_id = await self._task_queue.submit(task)
-                char_to_emoji_id[char] = emoji_id
+            for task in tasks:
+                await task.result_event.wait()
+                if task.error:
+                    raise task.error
+                char_to_emoji_id[task.character] = task.result
 
         # Build result text and entities
         result_text = []
