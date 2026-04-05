@@ -1,6 +1,7 @@
 """Character glyph repository for managing character to emoji mappings."""
 
 from sqlalchemy import and_, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models.character_glyph import CharacterGlyph
@@ -111,12 +112,19 @@ class CharacterGlyphRepository(BaseRepository[CharacterGlyph]):
         if existing:
             return existing
 
-        # Create new glyph
-        glyph = CharacterGlyph(
-            character=character,
-            font_id=font_id,
-            custom_emoji_id=custom_emoji_id,
-            file_id=file_id,
-            emoji_list=emoji_list,
-        )
-        return await self.create(glyph)
+        try:
+            glyph = CharacterGlyph(
+                character=character,
+                font_id=font_id,
+                custom_emoji_id=custom_emoji_id,
+                file_id=file_id,
+                emoji_list=emoji_list,
+            )
+            return await self.create(glyph)
+        except IntegrityError:
+            # Concurrent creation conflict, rollback and re-query existing record
+            await self.session.rollback()
+            existing = await self.get_by_character_and_font(character, font_id)
+            if existing:
+                return existing
+            raise

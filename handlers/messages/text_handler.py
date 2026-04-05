@@ -140,4 +140,7 @@ async def handle_text_to_emoji(
 
     except Exception:
         logger.exception("Error processing text to emoji")
-        await status_msg.edit_text(ErrorMessages.GENERATION_FAILED, parse_mode="HTML")
+        try:
+            await status_msg.edit_text(ErrorMessages.GENERATION_FAILED, parse_mode="HTML")
+        except Exception:
+            await message.reply(ErrorMessages.GENERATION_FAILED, parse_mode="HTML")

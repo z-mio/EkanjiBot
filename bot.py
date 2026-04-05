@@ -60,12 +60,6 @@ async def on_startup(bot: Bot) -> None:
         await init_system_fonts(session)
         await session.commit()
 
-    # Start sticker task queue
-    from services.sticker_service import StickerTaskQueue
-
-    queue = StickerTaskQueue.get_instance()
-    queue.start(bot, AsyncSessionLocal)
-
     logger.info("Bot started successfully!")
 
 
@@ -76,12 +70,6 @@ async def on_shutdown(bot: Bot) -> None:
         bot: Aiogram Bot instance.
     """
     logger.info("Shutting down...")
-
-    # Stop sticker task queue
-    from services.sticker_service import StickerTaskQueue
-
-    queue = StickerTaskQueue.get_instance()
-    await queue.stop()
 
     await close_db()
 

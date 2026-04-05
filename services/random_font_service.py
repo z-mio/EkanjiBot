@@ -15,7 +15,6 @@ from core.constants import CUSTOM_EMOJI_PLACEHOLDER
 from db.models.font import Font
 from db.repositories.character_glyph_repo import CharacterGlyphRepository
 from services.image_service import ImageRenderer
-from services.sticker_service import StickerCreationTask, StickerTaskQueue
 
 
 async def process_text_with_random_fonts(
@@ -46,7 +45,6 @@ async def process_text_with_random_fonts(
 
     glyph_repo = CharacterGlyphRepository(session)
     renderer = ImageRenderer()
-    task_queue = StickerTaskQueue.get_instance()
 
     chars_to_process = []
     seen = set()
@@ -120,24 +118,23 @@ async def process_text_with_random_fonts(
 
         images = await renderer.render_batch(chars, font_path, check_support=False)
 
-        tasks = []
-        for char, image in zip(chars, images, strict=False):
-            task = StickerCreationTask(
-                character=char,
-                font_id=font_id,
-                font_path=font_path,
-                image_bytes=image,
-                bot_username=bot_username,
-            )
-            await task_queue.put(task)
-            tasks.append(task)
+        from services.sticker_service import StickerService
 
-        for task in tasks:
-            await task.result_event.wait()
-            if task.error:
-                logger.exception(f"Failed to create sticker for '{task.character}'")
+        sticker_service = StickerService(session, None)
+
+        for char, image in zip(chars, images, strict=False):
+            try:
+                emoji_id = await sticker_service._create_sticker(
+                    character=char,
+                    font_id=font_id,
+                    font_path=font_path,
+                    image_bytes=image,
+                    bot_username=bot_username,
+                )
+                new_emoji_ids[(char, font_id)] = emoji_id
+            except Exception as e:
+                logger.error(f"Failed to create sticker for '{char}': {e}")
                 continue
-            new_emoji_ids[(task.character, font_id)] = task.result
 
     all_emoji_ids = {**cached_results, **new_emoji_ids}
 

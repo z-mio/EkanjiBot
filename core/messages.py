@@ -16,7 +16,7 @@ class ErrorMessages:
 
     GENERATION_FAILED = "<b>生成失败</b>\n\n请稍后重试"
 
-    CACHE_EXPIRED = "<b>缓存已过期</b>\n\n请重新发送"
+    CACHE_EXPIRED = "<b>生成超时</b>\n\n请重新输入文字生成"
 
     @staticmethod
     def text_too_long(current_length: int, max_length: int = MAX_TEXT_LENGTH) -> str:

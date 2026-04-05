@@ -49,6 +49,16 @@ class ImageRenderer:
         self._executor = ThreadPoolExecutor(max_workers=self.MAX_WORKERS)
         self._font_cache: dict[int, ImageFont.FreeTypeFont] = {}
 
+    def __del__(self):
+        """Cleanup thread pool on destruction."""
+        if hasattr(self, "_executor"):
+            self._executor.shutdown(wait=False)
+
+    async def cleanup(self):
+        """Explicitly cleanup resources."""
+        if hasattr(self, "_executor"):
+            self._executor.shutdown(wait=True)
+
     def _get_font(self, font_path: Path) -> ImageFont.FreeTypeFont:
         """Load and cache font from path.
 

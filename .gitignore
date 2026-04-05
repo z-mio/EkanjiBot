@@ -2,6 +2,7 @@
 logs
 .env
 sessions
+.DS_Store
 data/*.db
 data/uploads/
 __pycache__

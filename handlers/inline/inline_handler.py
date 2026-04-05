@@ -25,8 +25,8 @@ from utils.ttl_cache import TTLCache
 router = Router()
 
 # Temporary cache to store query text and flags by result_id
-# Entries expire after 30 seconds to prevent memory leaks from abandoned queries
-_query_cache: TTLCache[str, tuple[str, bool]] = TTLCache(ttl_seconds=30.0, max_size=1000)
+# Entries expire after 120 seconds to prevent memory leaks from abandoned queries
+_query_cache: TTLCache[str, tuple[str, bool]] = TTLCache(ttl_seconds=120.0, max_size=1000)
 
 
 @router.inline_query()

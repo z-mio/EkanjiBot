@@ -6,21 +6,17 @@ from unbounded dictionary growth.
 
 import time
 from dataclasses import dataclass
-from typing import Generic, TypeVar
-
-K = TypeVar("K")
-V = TypeVar("V")
 
 
 @dataclass
-class _CacheEntry(Generic[V]):
+class _CacheEntry[V]:
     """Internal cache entry with expiration timestamp."""
 
     value: V
     expires_at: float
 
 
-class TTLCache(Generic[K, V]):
+class TTLCache[K, V]:
     """Thread-unsafe cache with time-based expiration.
 
     Items expire after `ttl_seconds` and are lazily removed on access.
