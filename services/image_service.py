@@ -13,6 +13,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.constants import FONT_SIZE, RENDER_THREAD_POOL_SIZE, STICKER_SIZE
 from db.models.font import Font
 from db.repositories.font_repo import FontRepository
 from utils.font_support import supports_character
@@ -33,20 +34,11 @@ class ImageRenderer:
     Renders individual characters as 100x100 WebP images suitable for
     Telegram Custom Emoji stickers. Uses ThreadPoolExecutor for
     non-blocking CPU-intensive rendering operations.
-
-    Attributes:
-        STICKER_SIZE: Target sticker dimensions (100x100 pixels).
-        FONT_SIZE: Font size in points for rendering.
-        MAX_WORKERS: Maximum threads in rendering pool.
     """
-
-    STICKER_SIZE = (100, 100)
-    FONT_SIZE = 100
-    MAX_WORKERS = 4
 
     def __init__(self):
         """Initialize renderer with thread pool and font cache."""
-        self._executor = ThreadPoolExecutor(max_workers=self.MAX_WORKERS)
+        self._executor = ThreadPoolExecutor(max_workers=RENDER_THREAD_POOL_SIZE)
         self._font_cache: dict[int, ImageFont.FreeTypeFont] = {}
 
     def __del__(self):
@@ -70,7 +62,7 @@ class ImageRenderer:
         """
         cache_key = hash(str(font_path))
         if cache_key not in self._font_cache:
-            self._font_cache[cache_key] = ImageFont.truetype(str(font_path), self.FONT_SIZE)
+            self._font_cache[cache_key] = ImageFont.truetype(str(font_path), FONT_SIZE)
         return self._font_cache[cache_key]
 
     def supports_character(self, font_path: Path, character: str) -> bool:
@@ -96,12 +88,12 @@ class ImageRenderer:
             WebP image data as bytes.
         """
         # Create transparent image
-        img = Image.new("RGBA", self.STICKER_SIZE, (255, 255, 255, 0))
+        img = Image.new("RGBA", STICKER_SIZE, (255, 255, 255, 0))
         draw = ImageDraw.Draw(img)
 
         # Draw centered text with middle-middle alignment
         draw.text(
-            (self.STICKER_SIZE[0] // 2, self.STICKER_SIZE[1] // 2),
+            (STICKER_SIZE[0] // 2, STICKER_SIZE[1] // 2),
             character,
             font=font,
             fill=(255, 255, 255, 255),  # White for repainting support

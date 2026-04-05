@@ -24,6 +24,7 @@ from db.repositories.character_glyph_repo import CharacterGlyphRepository
 from db.repositories.sticker_set_repo import StickerSetRepository
 from services.image_service import ImageRenderer
 from utils.emoji_utils import is_unicode_emoji
+from utils.text_utils import get_utf16_length
 
 # Global lock for pack creation - ensures only one pack is created at a time
 _pack_lock = asyncio.Lock()
@@ -40,7 +41,6 @@ class StickerService:
     caching, and task submission.
     """
 
-    MAX_STICKERS_PER_PACK = 120
     CONVERTIBLE_PATTERN = re.compile(r"\S")
 
     def __init__(self, session: AsyncSession, bot: Bot):
@@ -89,10 +89,6 @@ class StickerService:
             Tuple of (result_text, result_entities) where result_text uses
             placeholder characters and result_entities maps them to custom emojis.
         """
-
-        def get_utf16_length(s: str) -> int:
-            """Calculate UTF-16 code unit length as Telegram API uses."""
-            return len(s.encode("utf-16-le")) // 2
 
         # Build set of UTF-16 positions that are already custom emojis
         skip_indices = set()

@@ -11,49 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.constants import MAX_TEXT_LENGTH
 from core.messages import ErrorMessages, InfoMessages
-from db.models.font import Font
 from db.models.user import User
 from db.repositories.font_repo import FontRepository
 from services.image_service import FontService
 from services.sticker_service import StickerService
+from utils.font_utils import get_user_font
 
 router = Router()
-
-
-async def get_user_font(
-    db_user: User,
-    fonts: list[Font],
-    font_repo: FontRepository,
-) -> tuple[Font, bool]:
-    """Get the font to use for user.
-
-    Priority:
-    1. User's preferred font if set and available
-    2. First available font (alphabetical default)
-
-    Args:
-        db_user: User model.
-        fonts: List of available fonts.
-        font_repo: Font repository for lookup.
-
-    Returns:
-        Tuple of (font_to_use, is_preferred) where is_preferred indicates
-        if using user's preferred font.
-    """
-    # Check if user has preferred font
-    if db_user.preferred_font_id:
-        # Try to find preferred font in available fonts
-        for font in fonts:
-            if font.id == db_user.preferred_font_id:
-                return font, True
-
-        # Preferred font not in active list, try to get it from DB
-        preferred_font = await font_repo.get_by_id(db_user.preferred_font_id)
-        if preferred_font and preferred_font.is_active:
-            return preferred_font, True
-
-    # Fall back to first font (alphabetical default)
-    return fonts[0], False
 
 
 @router.message(F.text)

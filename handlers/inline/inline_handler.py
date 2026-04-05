@@ -20,6 +20,7 @@ from db.repositories.font_repo import FontRepository
 from services.image_service import FontService
 from services.random_font_service import process_text_with_random_fonts
 from services.sticker_service import StickerService
+from utils.font_utils import get_user_font
 from utils.ttl_cache import TTLCache
 
 router = Router()
@@ -207,24 +208,7 @@ async def handle_chosen_inline_result(
             sticker_service = StickerService(session, bot)
             font_repo = FontRepository(session)
 
-            font = None
-            if db_user.preferred_font_id:
-                # Try to find preferred font
-                for f in fonts:
-                    if f.id == db_user.preferred_font_id:
-                        font = f
-                        break
-
-                if not font:
-                    # Try to get from DB
-                    preferred = await font_repo.get_by_id(db_user.preferred_font_id)
-                    if preferred and preferred.is_active:
-                        font = preferred
-
-            if not font:
-                # Fall back to first font
-                font = fonts[0]
-
+            font, _ = await get_user_font(db_user, fonts, font_repo)
             font_path = font.get_absolute_path()
 
             if not font_path.exists():

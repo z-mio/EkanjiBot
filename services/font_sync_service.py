@@ -9,6 +9,7 @@ from sqlalchemy import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import bs
+from core.constants import FONT_EXTENSIONS
 from db.models.font import Font
 from db.repositories.font_repo import FontRepository
 
@@ -30,9 +31,6 @@ class FontSyncService:
     from the assets/fonts/ directory. It implements an incremental merge
     strategy to keep the database in sync with the filesystem.
     """
-
-    # Supported font extensions
-    FONT_EXTENSIONS = {".ttf", ".otf", ".ttc", ".woff", ".woff2"}
 
     def __init__(self, session: AsyncSession, fonts_dir: Path | None = None):
         """Initialize sync service.
@@ -66,7 +64,7 @@ class FontSyncService:
                 for entry in entries:
                     if entry.is_file():
                         ext = Path(entry.name).suffix.lower()
-                        if ext in self.FONT_EXTENSIONS:
+                        if ext in FONT_EXTENSIONS:
                             fonts.add(entry.name)
         except OSError as e:
             logger.error(f"Error scanning fonts directory: {e}")

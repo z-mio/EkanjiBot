@@ -15,6 +15,7 @@ from core.constants import CUSTOM_EMOJI_PLACEHOLDER
 from db.models.font import Font
 from db.repositories.character_glyph_repo import CharacterGlyphRepository
 from services.image_service import ImageRenderer
+from utils.text_utils import get_utf16_length
 
 
 async def process_text_with_random_fonts(
@@ -146,18 +147,18 @@ async def process_text_with_random_fonts(
         font = position_to_font.get(idx)
         if not font:
             final_text += char
-            current_offset += _get_utf16_length(char)
+            current_offset += get_utf16_length(char)
             continue
 
         emoji_id = position_to_emoji_id.get(idx) or all_emoji_ids.get((char, font.id))
         if not emoji_id:
             final_text += char
-            current_offset += _get_utf16_length(char)
+            current_offset += get_utf16_length(char)
             continue
 
         # Use placeholder emoji
         final_text += CUSTOM_EMOJI_PLACEHOLDER
-        placeholder_len = _get_utf16_length(CUSTOM_EMOJI_PLACEHOLDER)
+        placeholder_len = get_utf16_length(CUSTOM_EMOJI_PLACEHOLDER)
 
         final_entities.append(
             MessageEntity(
@@ -170,15 +171,3 @@ async def process_text_with_random_fonts(
         current_offset += placeholder_len
 
     return final_text, final_entities
-
-
-def _get_utf16_length(s: str) -> int:
-    """Calculate UTF-16 code unit length as Telegram API uses.
-
-    Args:
-        s: String to measure.
-
-    Returns:
-        Number of UTF-16 code units.
-    """
-    return len(s.encode("utf-16-le")) // 2

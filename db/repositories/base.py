@@ -1,13 +1,10 @@
 """Base repository with common CRUD operations."""
 
 from collections.abc import Sequence
-from typing import Any, TypeVar
+from typing import Any
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import SQLModel
-
-ModelType = TypeVar("ModelType", bound=SQLModel)
 
 
 class BaseRepository[ModelType]:
